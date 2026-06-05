@@ -1,0 +1,92 @@
+# =============================================================================
+# PM PnL Dashboard — economic assumptions (single source of truth)
+#
+# Nothing economic is hardcoded in the engine. Change a value here, rerun
+# `python run.py`, and the whole pipeline + dashboard recompute. This is the
+# "config-driven, not a one-off script" proof point.
+# =============================================================================
+
+# Deterministic synthetic-data generation
+seed: 20240601
+n_business_days: 252        # ~1 trading year of daily data  (dt = 1/252)
+n_instruments: 50
+
+# -----------------------------------------------------------------------------
+# Gross -> Net bridge cost rates. Rates are ANNUAL; the engine multiplies by
+# dt = 1/252 to charge them daily on the prior day's exposure.
+# -----------------------------------------------------------------------------
+costs:
+  financing_rate:  0.030    # annual, charged on gross exposure (|long| + |short|)
+  borrow_rate:     0.015    # annual, charged on short notional
+  commission_bps:  1.5      # bps on traded notional (|delta qty| * price)
+
+# Center cost = fund overhead (ops, tech, compliance, rent). Annual figure
+# expressed as bps on AUM; accrued daily (* dt) at the fund level and deducted
+# ONCE when computing Investor Net (never inside PM Net).
+center_cost:
+  bps_on_aum: 35.0          # 0.35% of AUM per year
+
+# -----------------------------------------------------------------------------
+# Price process: factor model.  r_{i,t} = beta_i * f_t + eps_{i,t}
+#   f_t   ~ N(market.mu * dt, market.sigma * sqrt(dt))     (shared market factor)
+#   eps   ~ N(alpha_i * dt,  idio_vol_i * sqrt(dt))        (idiosyncratic)
+# Shared factor creates co-movement, which is what makes netting risk non-trivial.
+# -----------------------------------------------------------------------------
+market:
+  mu:    0.06               # annual market-factor drift
+  sigma: 0.16               # annual market-factor volatility
+
+# Per-asset-class: market beta, idiosyncratic vol, alpha dispersion, universe weight.
+asset_classes:
+  Equity:    {beta: 1.10, idio_vol: 0.18, alpha_dispersion: 0.10, weight: 0.40}
+  Rates:     {beta: 0.25, idio_vol: 0.06, alpha_dispersion: 0.04, weight: 0.15}
+  Credit:    {beta: 0.55, idio_vol: 0.09, alpha_dispersion: 0.06, weight: 0.15}
+  Commodity: {beta: 0.70, idio_vol: 0.24, alpha_dispersion: 0.12, weight: 0.15}
+  FX:        {beta: 0.35, idio_vol: 0.10, alpha_dispersion: 0.05, weight: 0.15}
+
+# -----------------------------------------------------------------------------
+# Position model. Each PM's `skill` (below) sets how strongly target weights align
+# with realized forward returns; the rest is noise. Higher skill -> more profit.
+# -----------------------------------------------------------------------------
+position_model:
+  gross_leverage_min: 1.8
+  gross_leverage_max: 2.6
+  noise_scale: 1.0          # idiosyncratic positioning noise relative to skill signal
+
+# -----------------------------------------------------------------------------
+# Pods (strategy buckets). allocated_capital in USD.
+# -----------------------------------------------------------------------------
+pods:
+  - {pod_id: POD_ECM, name: "Equity L/S", strategy_type: "Equity Long-Short",  allocated_capital: 480000000}
+  - {pod_id: POD_QNT, name: "Quant",      strategy_type: "Systematic Quant",   allocated_capital: 380000000}
+  - {pod_id: POD_MAC, name: "Macro",      strategy_type: "Global Macro",       allocated_capital: 300000000}
+  - {pod_id: POD_CRD, name: "Credit",     strategy_type: "Credit",             allocated_capital: 250000000}
+  - {pod_id: POD_EVT, name: "Event",      strategy_type: "Event / Merger Arb", allocated_capital: 220000000}
+
+# -----------------------------------------------------------------------------
+# PMs. Each runs a sub-book with its OWN payout terms.
+#   payout_ratio : share of profit (above HWM + hurdle) paid to the PM
+#   hurdle_rate  : annual return threshold on allocated_capital; accrues as
+#                  hurdle_rate * capital * (t * dt). Kept small by design.
+#   initial_HWM  : starting high-water mark on cumulative net PnL (USD)
+#   skill        : alignment of positions with realized forward returns. >0 skilled,
+#                  ~0 noise (likely underwater after costs), <0 anti-skilled (loses).
+# Pod-level comp = sum of its PMs. allocated_capital sums to the pod's capital.
+# -----------------------------------------------------------------------------
+pms:
+  # Equity L/S
+  - {pm_id: PM_ECM_1, pod_id: POD_ECM, name: "A. Vance",     allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0}
+  - {pm_id: PM_ECM_2, pod_id: POD_ECM, name: "B. Okafor",    allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9}
+  - {pm_id: PM_ECM_3, pod_id: POD_ECM, name: "C. Lindqvist", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4}
+  # Quant
+  - {pm_id: PM_QNT_1, pod_id: POD_QNT, name: "D. Reyes",     allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8}
+  - {pm_id: PM_QNT_2, pod_id: POD_QNT, name: "E. Novak",     allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1}
+  # Macro
+  - {pm_id: PM_MAC_1, pod_id: POD_MAC, name: "F. Adeyemi",   allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2}
+  - {pm_id: PM_MAC_2, pod_id: POD_MAC, name: "G. Sato",      allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6}
+  # Credit
+  - {pm_id: PM_CRD_1, pod_id: POD_CRD, name: "H. Moreau",    allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5}
+  - {pm_id: PM_CRD_2, pod_id: POD_CRD, name: "I. Petrova",   allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6}
+  # Event
+  - {pm_id: PM_EVT_1, pod_id: POD_EVT, name: "J. Castellano",allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6}
+  - {pm_id: PM_EVT_2, pod_id: POD_EVT, name: "K. Haddad",    allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3}
