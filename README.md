@@ -28,7 +28,7 @@ netting risk, and reporting what investors actually net.
 - **Two pod taxonomies** — group by strategy pod or by cross-strategy team (a toggle on each page)
 - **Decision tool** — a payout-ratio slider recomputes comp & investor net live, with the current ratio marked
 - **Polished Altair charts** — zoom, tooltips, angled labels, a Gross→Net waterfall (pure-Python, bundled with Streamlit; no Plotly/matplotlib)
-- **Switchable themes** — three dark palettes + one light, chosen from the sidebar
+- **Native theming** — refined dark & light themes in `config.toml`; charts, cards, and tables follow the theme automatically (switch via the app's ☰ → Settings)
 
 ---
 
@@ -112,7 +112,7 @@ The CEO/LP landing page. KPI cards (AUM, Gross, Net, **PM Comp Expense**, Invest
 Net), the fund equity curve (Gross vs Net — the gap *is* the cost bridge, drag to
 zoom), a Pod & PM leaderboard (toggle **Strategy Pod / Team**) with 3-month trend
 sparklines and a comp/net bar, and the **Controls & Reconciliation** panel.
-**All-green = trustworthy.** Pick a **theme** from the sidebar.
+**All-green = trustworthy.** Switch **light / dark** from the app's ☰ → Settings menu.
 
 ### 🔍 Pod & PM — Drill-down
 Pick a **Pod** (or **All pods**), then a **PM** (or "All PMs"). You get that

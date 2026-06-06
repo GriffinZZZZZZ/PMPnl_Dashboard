@@ -1,125 +1,96 @@
-"""Shared visual system: switchable palettes, page config, scoped CSS.
+"""Shared visual system — native theming + a thin layer of component CSS.
 
-A small set of curated palettes (3 dark + 1 light) is exposed via a sidebar
-selector. Colors are design tokens so both the CSS (cards, chips, headers) and
-the Altair charts (`app/components/charts.py`) read from one source of truth.
-Aesthetic: a refined financial terminal — elevated ink surfaces (never flat
-#000), a metallic accent, editorial display type + tabular mono figures.
+Colors, fonts, radius, chart palettes, and light/dark are configured natively in
+`.streamlit/config.toml` (`[theme.light]` / `[theme.dark]`). Users switch theme
+from the app settings menu. The only CSS here styles a few bespoke components
+(KPI cards, section headers, status chips, callouts) and it reads Streamlit's
+injected `--st-*` theme variables, so it adapts to light/dark automatically.
+
+`colors()` mirrors the config palette in Python for the Altair charts and the
+income-statement table, which need concrete color values keyed on the active mode.
 """
 from __future__ import annotations
 
 import streamlit as st
 
-# -----------------------------------------------------------------------------
-# Palettes. Each is a dict of tokens; `scheme` is the categorical chart sequence.
-# -----------------------------------------------------------------------------
-PALETTES: dict[str, dict] = {
-    "Dark": {
-        "mode": "dark",
-        "bg": "#0F141C", "surface": "#161D29", "surface2": "#121925", "border": "#243044",
-        "text": "#E7ECF5", "muted": "#8A94A8",
-        "accent": "#4FD1C5", "accent2": "#6AA0FF",
+# Mirror of the config.toml palettes, for code that needs concrete values
+# (Altair semantic colors, the HTML income-statement). Categorical chart colors
+# are inherited natively via `chartCategoricalColors`, so they live only in config.
+_COLORS = {
+    "dark": {
+        "bg": "#0F141C", "surface": "#161D29", "border": "#243044",
+        "text": "#E7ECF5", "muted": "#8A94A8", "accent": "#4FD1C5", "accent2": "#6AA0FF",
         "good": "#3FB870", "bad": "#F2645A", "warn": "#E3B341",
-        "scheme": ["#4FD1C5", "#6AA0FF", "#E3B341", "#C792EA", "#F78C6B", "#86E1A0", "#7FB3FF", "#E06C9F"],
     },
-    "Light": {
-        "mode": "light",
-        "bg": "#F5F4EF", "surface": "#FFFFFF", "surface2": "#FBFAF6", "border": "#E3DFD5",
-        "text": "#1C2430", "muted": "#6B7280",
-        "accent": "#0E8A7D", "accent2": "#3A6FD8",
+    "light": {
+        "bg": "#F5F4EF", "surface": "#FFFFFF", "border": "#E3DFD5",
+        "text": "#1C2430", "muted": "#6B7280", "accent": "#0E8A7D", "accent2": "#3A6FD8",
         "good": "#1F9D55", "bad": "#D64545", "warn": "#B9791B",
-        "scheme": ["#0E8A7D", "#3A6FD8", "#B9791B", "#8A5BD6", "#C2603F", "#2E9E6B", "#4A86C5", "#B0508A"],
     },
 }
-DEFAULT_THEME = "Dark"
-
-_FONTS = (
-    "@import url('https://fonts.googleapis.com/css2?"
-    "family=Fraunces:opsz,wght@9..144,500;9..144,600&"
-    "family=IBM+Plex+Sans:wght@400;500;600;700&"
-    "family=IBM+Plex+Mono:wght@500;600&display=swap');"
-)
 
 
-def active_palette() -> dict:
-    """Return the currently selected palette dict (defaults to ``DEFAULT_THEME``)."""
-    return PALETTES.get(st.session_state.get("theme_choice", DEFAULT_THEME), PALETTES[DEFAULT_THEME])
+def colors() -> dict:
+    """Concrete palette for the active theme (defaults to dark if unknown)."""
+    try:
+        mode = st.context.theme.type or "dark"
+    except Exception:
+        mode = "dark"
+    return _COLORS.get(mode, _COLORS["dark"])
 
 
-def _css(p: dict) -> str:
-    """Build the scoped stylesheet from the active palette tokens."""
-    sans = "'IBM Plex Sans', -apple-system, system-ui, sans-serif"
-    display = "'Fraunces', Georgia, serif"
-    mono = "'IBM Plex Mono', ui-monospace, monospace"
-    return f"""
+# Thin component CSS — uses --st-* theme variables so it follows light/dark natively.
+_CSS = """
 <style>
-{_FONTS}
-:root {{ --bg:{p['bg']}; --surface:{p['surface']}; --surface2:{p['surface2']};
-  --border:{p['border']}; --text:{p['text']}; --muted:{p['muted']};
-  --accent:{p['accent']}; --accent2:{p['accent2']};
-  --good:{p['good']}; --bad:{p['bad']}; --warn:{p['warn']}; }}
+.block-container { padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1400px; }
 
-/* ---- app shell: drive bg + text from the active palette (runtime switch) -- */
-.stApp, [data-testid="stAppViewContainer"] {{ background: var(--bg); color: var(--text); }}
-[data-testid="stHeader"] {{ background: transparent; }}
-section[data-testid="stSidebar"] {{ background: var(--surface2); border-right: 1px solid var(--border); }}
-[data-testid="stAppViewContainer"], .stMarkdown, p, span, label, li {{ font-family: {sans}; color: var(--text); }}
-.block-container {{ padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1400px; }}
-h1, h2, h3, .page-title {{ font-family: {display}; letter-spacing: -0.01em; font-weight: 600; color: var(--text); }}
+.page-title { font-family: var(--st-heading-font); font-size: 2.1rem; font-weight: 600;
+  letter-spacing: -0.01em; margin: 0 0 .15rem 0; color: var(--st-heading-color); }
+.page-sub { color: var(--st-gray-color, #8A94A8); font-size: 1.0rem; margin: 0 0 1.3rem 0; }
+.section-title { font-size: 1.08rem; font-weight: 700; letter-spacing: .01em;
+  margin: 1.5rem 0 .5rem 0; border-left: 3px solid var(--st-primary-color); padding-left: .6rem;
+  color: var(--st-text-color); }
 
-.page-title {{ font-size: 2.1rem; margin: 0 0 .15rem 0; }}
-.page-sub {{ color: var(--muted); font-size: 1.0rem; margin: 0 0 1.3rem 0; font-family: {sans}; }}
-.section-title {{ font-family: {sans}; font-size: 1.08rem; font-weight: 700; letter-spacing: .01em;
-  margin: 1.5rem 0 .5rem 0; border-left: 3px solid var(--accent); padding-left: .6rem; color: var(--text); }}
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px; margin: .2rem 0 1.0rem 0; }
+.kpi-card { background: var(--st-secondary-background-color); border: 1px solid var(--st-border-color);
+  border-radius: var(--st-base-radius, 12px); padding: 16px 18px; box-shadow: 0 6px 18px rgba(0,0,0,0.16); }
+.kpi-card .label { color: var(--st-gray-color, #8A94A8); font-size: .74rem; text-transform: uppercase;
+  letter-spacing: .08em; font-weight: 600; }
+.kpi-card .value { font-family: var(--st-code-font); font-size: 1.7rem; font-weight: 600;
+  margin-top: .3rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--st-text-color); }
+.kpi-card .delta { font-size: .82rem; margin-top: .35rem; font-weight: 600; }
+.kpi-card.accent { border-color: var(--st-primary-color); }
+.kpi-card.cost { border-color: var(--st-red-color, #F2645A); }
+.delta.up { color: var(--st-green-color, #3FB870); }
+.delta.down { color: var(--st-red-color, #F2645A); }
+.delta.flat { color: var(--st-gray-color, #8A94A8); }
 
-/* ---- KPI cards ---------------------------------------------------------- */
-.kpi-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px; margin: .2rem 0 1.0rem 0; }}
-.kpi-card {{ background: linear-gradient(180deg, var(--surface) 0%, var(--surface2) 100%);
-  border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 22px rgba(0,0,0,0.22); }}
-.kpi-card .label {{ color: var(--muted); font-size: .74rem; text-transform: uppercase;
-  letter-spacing: .08em; font-weight: 600; font-family: {sans}; }}
-.kpi-card .value {{ font-family: {mono}; font-size: 1.7rem; font-weight: 600; margin-top: .3rem;
-  line-height: 1.1; font-variant-numeric: tabular-nums; }}
-.kpi-card .delta {{ font-size: .82rem; margin-top: .35rem; font-weight: 600; font-family: {sans}; }}
-.kpi-card.accent {{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent)33, 0 8px 22px rgba(0,0,0,.28); }}
-.kpi-card.cost   {{ border-color: var(--bad)66; }}
-.delta.up   {{ color: var(--good); }}
-.delta.down {{ color: var(--bad); }}
-.delta.flat {{ color: var(--muted); }}
-
-/* ---- status chips + banners (controls panel) --------------------------- */
-.chip {{ display: inline-flex; align-items: center; gap: .4rem; padding: .26rem .7rem;
-  border-radius: 999px; font-weight: 700; font-size: .78rem; font-family: {sans}; }}
-.chip.pass {{ background: var(--good)1A; color: var(--good); border: 1px solid var(--good)55; }}
-.chip.fail {{ background: var(--bad)1A;  color: var(--bad);  border: 1px solid var(--bad)66; }}
-.recon-row {{ display: flex; justify-content: space-between; align-items: center;
-  padding: .55rem .85rem; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--surface); margin-bottom: 8px; }}
-.recon-row .name {{ font-weight: 500; font-family: {sans}; }}
-.recon-row .diff {{ color: var(--muted); font-size: .8rem; font-family: {mono}; font-variant-numeric: tabular-nums; }}
-.banner {{ border-radius: 12px; padding: .8rem 1rem; font-weight: 700; margin: .2rem 0 1rem 0; font-family: {sans}; }}
-.banner.ok   {{ background: var(--good)14; color: var(--good); border: 1px solid var(--good)55; }}
-.banner.bad  {{ background: var(--bad)14;  color: var(--bad);  border: 1px solid var(--bad)66; }}
-.explain {{ color: var(--muted); font-size: .86rem; margin: -.2rem 0 .7rem 0; font-family: {sans}; }}
-
-.callout {{ background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--warn);
-  border-radius: 10px; padding: .9rem 1.1rem; margin: .4rem 0 1rem 0; }}
-.callout .big {{ font-family: {mono}; font-size: 1.5rem; font-weight: 600; color: var(--warn); }}
-[data-testid="stMetricValue"] {{ font-family: {mono}; font-weight: 600; }}
-[data-testid="stDataFrame"] {{ font-variant-numeric: tabular-nums; }}
+.chip { display: inline-flex; align-items: center; gap: .4rem; padding: .26rem .7rem;
+  border-radius: 999px; font-weight: 700; font-size: .78rem; }
+.chip.pass { background: var(--st-green-background-color, rgba(63,184,112,.12)); color: var(--st-green-color, #3FB870); }
+.chip.fail { background: var(--st-red-background-color, rgba(242,100,90,.12)); color: var(--st-red-color, #F2645A); }
+.recon-row { display: flex; justify-content: space-between; align-items: center;
+  padding: .55rem .85rem; border: 1px solid var(--st-border-color); border-radius: 10px;
+  background: var(--st-secondary-background-color); margin-bottom: 8px; }
+.recon-row .name { font-weight: 500; }
+.recon-row .diff { color: var(--st-gray-color, #8A94A8); font-size: .8rem; font-family: var(--st-code-font);
+  font-variant-numeric: tabular-nums; }
+.banner { border-radius: 12px; padding: .8rem 1rem; font-weight: 700; margin: .2rem 0 1rem 0; }
+.banner.ok { background: var(--st-green-background-color, rgba(63,184,112,.12)); color: var(--st-green-color, #3FB870); }
+.banner.bad { background: var(--st-red-background-color, rgba(242,100,90,.12)); color: var(--st-red-color, #F2645A); }
+.explain { color: var(--st-gray-color, #8A94A8); font-size: .86rem; margin: -.2rem 0 .7rem 0; }
+.callout { background: var(--st-secondary-background-color); border: 1px solid var(--st-border-color);
+  border-left: 3px solid var(--st-yellow-color, #E3B341); border-radius: 10px; padding: .9rem 1.1rem; margin: .4rem 0 1rem 0; }
+.callout .big { font-family: var(--st-code-font); font-size: 1.5rem; font-weight: 600; color: var(--st-yellow-color, #E3B341); }
 </style>
 """
 
 
 def setup_page(title: str, icon: str = "📊") -> None:
-    """Configure the page, render the theme selector, and inject palette CSS."""
+    """Configure the page and inject the component CSS (theming is native)."""
     st.set_page_config(page_title=f"{title} · PM PnL", page_icon=icon, layout="wide")
-    st.session_state.setdefault("theme_choice", DEFAULT_THEME)
-    with st.sidebar:
-        st.selectbox("Theme", list(PALETTES), key="theme_choice")
-    st.markdown(_css(active_palette()), unsafe_allow_html=True)
+    st.markdown(_CSS, unsafe_allow_html=True)
 
 
 def page_header(title: str, subtitle: str = "") -> None:

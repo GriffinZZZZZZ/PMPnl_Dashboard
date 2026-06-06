@@ -11,7 +11,7 @@ from __future__ import annotations
 import altair as alt
 import pandas as pd
 
-from app.components.theme import active_palette
+from app.components.theme import colors
 
 SANS = "IBM Plex Sans"
 DISPLAY = "Fraunces"
@@ -48,7 +48,7 @@ def _overview(data: pd.DataFrame, x: str, p: dict, *, y: str, color_field: str |
         y=alt.Y(f"{y}:Q", title=None, axis=None),
     )
     if color_field:
-        enc["color"] = alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]), legend=None)
+        enc["color"] = alt.Color(f"{color_field}:N", legend=None)
     ov = (alt.Chart(data).mark_line(opacity=0.55, color=line_color or p["accent2"])
           .encode(**enc).add_params(brush).properties(height=height))
     return brush, ov
@@ -57,7 +57,7 @@ def _overview(data: pd.DataFrame, x: str, p: dict, *, y: str, color_field: str |
 def line(df: pd.DataFrame, *, x: str = "date", height: int = 300, zoom: bool = True,
          title: str | None = None, y_title: str = "USD", date_fmt: str = "%b %Y") -> alt.Chart:
     """Multi-series line chart (wide df). Drag-to-zoom via a lower brush strip; legend bottom."""
-    p = active_palette()
+    p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
     series = [c for c in data.columns if c != x]
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
@@ -72,8 +72,7 @@ def line(df: pd.DataFrame, *, x: str = "date", height: int = 300, zoom: bool = T
         .encode(
             x=x_enc,
             y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
-            color=alt.Color("Series:N", scale=alt.Scale(range=p["scheme"]),
-                            legend=alt.Legend(title=None, orient="bottom")),
+            color=alt.Color("Series:N", legend=alt.Legend(title=None, orient="bottom")),
             tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
                      alt.Tooltip("value:Q", format=",.0f", title="Value")],
         )
@@ -88,7 +87,7 @@ def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
         height: int = 320, title: str | None = None, fmt: str = "~s",
         cat_title: str | None = None, val_title: str | None = None) -> alt.Chart:
     """Bar chart with angled category labels, value sort, optional diverging colors."""
-    p = active_palette()
+    p = colors()
     df = data.copy()
     sortspec = alt.EncodingSortField(field=val, order="descending") if sort_by_value else None
     cat_axis = alt.Axis(labelAngle=0 if horizontal else -45, title=cat_title)
@@ -119,13 +118,13 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
             height: int = 380, x_title: str | None = None, y_title: str | None = None,
             x_fmt: str = ".0%", y_fmt: str = ".0%", title: str | None = None) -> alt.Chart:
     """Scatter with one color per category, tooltips, and a bottom legend."""
-    p = active_palette()
+    p = colors()
     ch = (
         alt.Chart(df).mark_circle(size=150, opacity=0.85, stroke=p["bg"], strokeWidth=1)
         .encode(
             x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
             y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
-            color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]),
+            color=alt.Color(f"{color_field}:N",
                             legend=alt.Legend(title=None, orient="bottom", columns=6)),
             tooltip=tooltip,
         )
@@ -137,7 +136,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
 def area(df: pd.DataFrame, val: str, *, x: str = "date", height: int = 280, zoom: bool = True,
          color: str | None = None, y_title: str = "USD", title: str | None = None) -> alt.Chart:
     """Single-series filled area (e.g. accrued liability) with drag-to-zoom."""
-    p = active_palette()
+    p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
     c = color or p["bad"]
     if zoom:
@@ -162,7 +161,7 @@ def dual_line(df: pd.DataFrame, left: str, right: str, *, x: str = "date",
               left_title: str = "USD", right_title: str = "%", height: int = 300,
               title: str | None = None, zoom: bool = True) -> alt.Chart:
     """Area (left axis, $) + line (right axis, %) on independent scales, with drag-to-zoom."""
-    p = active_palette()
+    p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
     if zoom:
         brush, ov = _overview(data, x, p, y=left, line_color=p["bad"])
@@ -189,7 +188,7 @@ def dual_line(df: pd.DataFrame, left: str, right: str, *, x: str = "date",
 def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320,
                 title: str | None = None, x_title: str = "Payout Ratio") -> alt.Chart:
     """Sensitivity sweep (wide df indexed by ``x``) with a marked 'current' value."""
-    p = active_palette()
+    p = colors()
     long = df.reset_index().melt(x, var_name="Series", value_name="value")
     ymax = float(long["value"].max())
     base = alt.Chart(long).mark_line(strokeWidth=2.5).encode(
@@ -214,7 +213,7 @@ def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None
     """Bridge waterfall. ``steps`` = list of ``(label, value, kind)`` with kind in
     ``{'total','delta'}``; totals are drawn from zero, deltas float on the running sum.
     """
-    p = active_palette()
+    p = colors()
     rows, running = [], 0.0
     for label, value, kind in steps:
         if kind == "total":

@@ -10,7 +10,7 @@ import streamlit as st
 
 from app.components import charts
 from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row, style_negative
-from app.components.theme import active_palette, page_header, section, setup_page
+from app.components.theme import colors, page_header, section, setup_page
 from src.engine import attribution, costs, economics
 from src.loader import compute_all
 
@@ -85,7 +85,7 @@ with left:
     st.altair_chart(charts.waterfall(steps, height=340), width="stretch")
 with right:
     # Income-statement-style table: indented deductions, bold subtotals, red negatives.
-    p = active_palette()
+    p = colors()
     rows_html = ""
     subtotals = {"Gross PnL", "PM Net", "Investor Net"}
     for label, value, kind in steps:
