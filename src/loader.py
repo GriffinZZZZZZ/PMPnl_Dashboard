@@ -105,6 +105,14 @@ def compute_all(
     payoff_daily = payoff.compute_payoff(pm_net_daily, pms, cfg, payout_ratio_override)
     total_comp = float(payoff.total_comp_by_pm(payoff_daily)["total_comp"].sum())
 
+    # Drawdown per PM: how far cum_net sits below the running HWM (negative = below).
+    drawdown_by_pm = (
+        payoff_daily.assign(drawdown=lambda d: d["cum_net"] - d["hwm"])
+        .groupby("pm_id")["drawdown"]
+        .min()
+        .rename("max_drawdown")
+    )
+
     fund_trading          = float(pm_net_daily["trading_pnl"].sum())
     fund_non_trading      = float(pm_net_daily["non_trading_pnl"].sum())
     fund_gross            = float(pm_net_daily["gross_pnl"].sum())
@@ -113,7 +121,14 @@ def compute_all(
     fund_capital_charges  = float(pm_net_daily["capital_charge"].sum())
     income_total          = float(income_f["amount"].sum())
     position_trading      = float(position_frame["gross_pnl"].sum())
-    econ = economics.investor_economics(fund_eligible, total_comp, cfg, capital_charges=fund_capital_charges)
+    fund_base_comp        = economics.base_comp_total(cfg)
+    fund_mgmt_fee         = economics.management_fee_total(cfg)
+    econ = economics.investor_economics(
+        fund_eligible, total_comp, cfg,
+        capital_charges=fund_capital_charges,
+        base_comp=fund_base_comp,
+        mgmt_fee=fund_mgmt_fee,
+    )
 
     return {
         "cfg": cfg,
@@ -131,6 +146,8 @@ def compute_all(
         "fund_net":             fund_net,
         "fund_eligible_pnl":    fund_eligible,
         "fund_capital_charges": fund_capital_charges,
+        "fund_base_comp":       fund_base_comp,
+        "fund_mgmt_fee":        fund_mgmt_fee,
         "income_total":         income_total,
         "position_trading":     position_trading,
         "eod_income":           income_f,
@@ -139,6 +156,7 @@ def compute_all(
         "investor_net":         econ["investor_net"],
         "comp_expense_ratio":   econ["comp_expense_ratio"],
         "aum":                  econ["aum"],
+        "drawdown_by_pm":       drawdown_by_pm,
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
         "prices": prices_f,

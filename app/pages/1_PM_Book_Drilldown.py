@@ -86,25 +86,38 @@ section(f"{title} — Equity Curve")
 curve = sel_daily.groupby("date")[["gross_pnl", "net_pnl", "eligible_pnl"]].sum().sort_index().cumsum()
 curve.columns = ["Gross", "Net", "Eligible"]
 charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)")
+dd_sel   = float(sel_payoff.assign(dd=lambda d: d["cum_net"] - d["hwm"])["dd"].min())
+cur_dd   = float(sel_payoff.sort_values("date").groupby("pm_id")[["cum_net", "hwm"]].last()
+                 .eval("cum_net - hwm").sum())
+dd_c1, dd_c2, *_ = st.columns(5)
+dd_c1.metric("Max Drawdown", fmt_money(dd_sel), help="Largest trough below HWM over the period")
+dd_c2.metric("Current Drawdown", fmt_money(cur_dd), help="Cumulative eligible vs HWM today")
 
 # ---- Gross → Net → Eligible → Investor bridge --------------------------------
 section("Trading → Gross → Net → Eligible → Investor Bridge")
-bridge   = costs.bridge_components(sel_daily, sel_pms)
-investor = bridge["Eligible PnL"] - comp
+bridge    = costs.bridge_components(sel_daily, sel_pms)
+# Scale fund-level mgmt fee and base comp by this selection's AUM share.
+fund_aum  = results["aum"]
+aum_share = cap / fund_aum if fund_aum else 1.0
+mgmt_fee_sel  = results["fund_mgmt_fee"]  * aum_share
+base_comp_sel = results["fund_base_comp"] * aum_share
+investor  = bridge["Eligible PnL"] - mgmt_fee_sel - base_comp_sel - comp
 steps = [
-    ("Trading PnL",      bridge["Trading PnL"],     "total"),
-    ("+ Non-trading PnL",bridge["Non-trading PnL"], "delta"),
-    ("Gross PnL",       bridge["Gross PnL"],      "total"),
-    ("− Financing",     bridge["Financing"],       "delta"),
-    ("− Borrow",        bridge["Borrow"],          "delta"),
-    ("− Commission",    bridge["Commission"],      "delta"),
-    ("− FX",            bridge["FX"],              "delta"),
-    ("Net PnL",         bridge["Net PnL"],         "total"),
-    ("− Center",        bridge["Center"],          "delta"),
-    ("− Capital Charge",bridge["Capital Charge"],  "delta"),
-    ("Eligible PnL",    bridge["Eligible PnL"],    "total"),
-    ("− Comp",          -comp,                     "delta"),
-    ("Investor Net",    investor,                  "total"),
+    ("Trading PnL",       bridge["Trading PnL"],     "total"),
+    ("+ Non-trading PnL", bridge["Non-trading PnL"], "delta"),
+    ("Gross PnL",         bridge["Gross PnL"],       "total"),
+    ("− Financing",       bridge["Financing"],       "delta"),
+    ("− Borrow",          bridge["Borrow"],          "delta"),
+    ("− Commission",      bridge["Commission"],      "delta"),
+    ("− FX",              bridge["FX"],              "delta"),
+    ("Net PnL",           bridge["Net PnL"],         "total"),
+    ("− Center",          bridge["Center"],          "delta"),
+    ("− Capital Charge",  bridge["Capital Charge"],  "delta"),
+    ("Eligible PnL",      bridge["Eligible PnL"],    "total"),
+    ("− Mgmt Fee",        -mgmt_fee_sel,             "delta"),
+    ("− Base Comp",       -base_comp_sel,            "delta"),
+    ("− Incentive Comp",  -comp,                     "delta"),
+    ("Investor Net",      investor,                  "total"),
 ]
 left, right = st.columns([3, 2])
 with left:
@@ -112,7 +125,7 @@ with left:
 with right:
     p = colors()
     rows_html = ""
-    subtotals = {"Trading PnL", "Gross PnL", "Net PnL", "Eligible PnL", "Investor Net"}
+    subtotals = {"Trading PnL", "Gross PnL", "Net PnL", "Eligible PnL", "Investor Net"}  # noqa: E501
     for label, value, kind in steps:
         bold   = "font-weight:700;" if label in subtotals else ""
         indent = "" if label in subtotals else "padding-left:1.2rem;"
@@ -128,7 +141,7 @@ with right:
         f'border:1px solid {p["border"]};border-radius:10px;overflow:hidden;">{rows_html}</table>',
         unsafe_allow_html=True,
     )
-st.caption("Net PnL = Gross − trading costs. Eligible PnL = Net − center − capital charge. Investor Net = Eligible − Comp.")
+st.caption("Net = Gross − trading costs. Eligible = Net − center − capital charge. Investor Net = Eligible − mgmt fee − base comp − incentive comp.")
 
 # ---- attribution ------------------------------------------------------------
 section("Strategy & Position Attribution")

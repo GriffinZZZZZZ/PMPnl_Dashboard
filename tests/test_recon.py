@@ -42,7 +42,14 @@ def _results(simple_cfg):
     fund_net             = float(pm_net_daily["net_pnl"].sum())
     fund_eligible        = float(pm_net_daily["eligible_pnl"].sum())
     fund_capital_charges = float(pm_net_daily["capital_charge"].sum())  # 0.0 (hurdle_rate=0)
-    econ = economics.investor_economics(fund_eligible, total_comp, simple_cfg, capital_charges=fund_capital_charges)
+    fund_base_comp = economics.base_comp_total(simple_cfg)              # 0.0 (no base_salary in simple_cfg)
+    fund_mgmt_fee  = economics.management_fee_total(simple_cfg)         # 0.0 (no management_fee in simple_cfg)
+    econ = economics.investor_economics(
+        fund_eligible, total_comp, simple_cfg,
+        capital_charges=fund_capital_charges,
+        base_comp=fund_base_comp,
+        mgmt_fee=fund_mgmt_fee,
+    )
     return {
         "pm_net_daily":         pm_net_daily,
         "pms":                  pms,
@@ -55,6 +62,8 @@ def _results(simple_cfg):
         "fund_net":             fund_net,
         "fund_eligible_pnl":    fund_eligible,
         "fund_capital_charges": fund_capital_charges,
+        "fund_base_comp":       fund_base_comp,
+        "fund_mgmt_fee":        fund_mgmt_fee,
         "total_comp":           total_comp,
         "investor_net":         econ["investor_net"],
     }

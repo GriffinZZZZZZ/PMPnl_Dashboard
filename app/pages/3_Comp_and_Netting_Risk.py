@@ -36,13 +36,16 @@ page_header(
 
 # ---- KPI row ----------------------------------------------------------------
 kpi_row([
-    kpi_card("Total Accrued Comp", fmt_money(results["total_comp"]),
-             "GAAP liability to date", "down", variant="cost"),
-    kpi_card("Comp / Eligible PnL", fmt_pct(results["comp_expense_ratio"]), "expense ratio", "flat"),
+    kpi_card("Mgmt Fee", fmt_money(results["fund_mgmt_fee"]),
+             "2% AUM — LP pays the fund", "down", variant="cost"),
+    kpi_card("Base Comp", fmt_money(results["fund_base_comp"]),
+             "fixed PM salaries accrued", "down", variant="cost"),
+    kpi_card("Total Incentive Comp", fmt_money(results["total_comp"]),
+             f"{fmt_pct(results['comp_expense_ratio'])} of eligible", "down", variant="cost"),
     kpi_card("Netting Cost", fmt_money(results["netting_cost"]),
              "comp on offset gains", "down", variant="cost"),
     kpi_card("Investor Net", fmt_money(results["investor_net"]),
-             "eligible − comp", "up", variant="accent"),
+             "eligible − mgmt fee − base comp − incentive comp", "up", variant="accent"),
 ])
 
 # ---- comp by pod AND by team (two charts, no toggle) ----------------------

@@ -13,8 +13,12 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import datetime
+import time
+
 from src.config import load_config
 from src.data_gen.generate import generate_all
+from src.db import write_manifest
 from src.engine import recon
 from src.loader import compute_all
 
@@ -25,7 +29,19 @@ def _section(title: str) -> None:
     print("=" * 68)
 
 
+def _git_ref() -> str | None:
+    """Return current git commit short hash, or None if not in a git repo."""
+    try:
+        import subprocess as _sp
+        r = _sp.run(["git", "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=3)
+        return r.stdout.strip() or None
+    except Exception:
+        return None
+
+
 def main() -> int:
+    t0 = time.time()
     cfg = load_config()
 
     _section("1/4  GENERATE synthetic data")
@@ -48,7 +64,18 @@ def main() -> int:
     _section("3/4  RECONCILE control tie-outs")
     checks = recon.run_checks(results, cfg)
     print(recon.to_frame(checks).to_string(index=False))
-    if not recon.all_passed(checks):
+    recon_ok = recon.all_passed(checks)
+    write_manifest({
+        "run_at":       datetime.datetime.utcnow().isoformat(),
+        "git_ref":      _git_ref(),
+        "n_prices":     len(tables["eod_prices"]),
+        "n_positions":  len(tables["eod_positions"]),
+        "n_income":     len(tables["eod_income"]),
+        "recon_pass":   int(recon_ok),
+        "n_checks":     len(checks),
+        "pipeline_sec": round(time.time() - t0, 2),
+    })
+    if not recon_ok:
         print("\n  RECONCILIATION FAILED — numbers do not tie out.")
         return 1
     print("\n  All reconciliation tie-outs PASS.")

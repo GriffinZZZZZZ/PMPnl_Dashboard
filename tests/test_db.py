@@ -123,6 +123,12 @@ def test_professional_column_names_in_eod_positions(tmp_db):
     assert "quantity" in positions.columns
 
 
+def test_run_manifest_table_exists_after_ddl(tmp_db):
+    """run_manifest table is created by DDL (written by run.py, not write_database)."""
+    items = list_tables(path=tmp_db)
+    assert "run_manifest" in [n for n, _ in items]
+
+
 def test_roundtrip_eod_income(tmp_db, tiny_tables):
     tables, _ = tiny_tables
     result = read_table("eod_income", path=tmp_db)

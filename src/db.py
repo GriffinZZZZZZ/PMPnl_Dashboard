@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS portfolio_managers (
     hurdle_rate       REAL,
     initial_hwm       REAL,
     skill             REAL,
-    loss_carryforward REAL
+    loss_carryforward REAL,
+    base_salary       REAL
     -- NOTE: ticker is used as PK in security_master (acceptable for MVP with
     -- synthetic, stable tickers). In production use ISIN/CUSIP + surrogate key.
 );
@@ -87,6 +88,18 @@ CREATE TABLE IF NOT EXISTS trade_blotter (
     trade_notional  REAL    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS run_manifest (
+    run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at       TEXT    NOT NULL,
+    git_ref      TEXT,
+    n_prices     INTEGER,
+    n_positions  INTEGER,
+    n_income     INTEGER,
+    recon_pass   INTEGER NOT NULL,
+    n_checks     INTEGER,
+    pipeline_sec REAL
+);
+
 CREATE VIEW IF NOT EXISTS vw_manager_hierarchy AS
 SELECT
     p.pm_id, p.pm_name, p.pm_aum, p.payout_ratio,
@@ -105,6 +118,28 @@ SELECT
 FROM eod_positions pos
 JOIN eod_prices pr ON pos.date = pr.date AND pos.ticker = pr.ticker;
 """
+
+
+def ensure_schema(path: str | Path = DB_PATH) -> None:
+    """Create tables/views that don't yet exist (idempotent; never drops data)."""
+    conn = connect(path)
+    try:
+        conn.executescript(_DDL)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def write_manifest(row: dict, path: str | Path = DB_PATH) -> None:
+    """Append one row to run_manifest (ensures schema exists first)."""
+    ensure_schema(path)
+    conn = connect(path)
+    try:
+        import pandas as _pd
+        _pd.DataFrame([row]).to_sql("run_manifest", conn, if_exists="append", index=False)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def connect(path: str | Path = DB_PATH) -> sqlite3.Connection:
