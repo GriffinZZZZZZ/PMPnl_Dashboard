@@ -12,10 +12,10 @@ import streamlit as st
 from app.components import charts
 from app.components.controls import render_controls, render_date_filter
 from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row, style_negative
-from app.components.theme import page_header, section, setup_page
+from app.components.theme import colors, page_header, section, setup_page
 from src.db import query
 from src.engine import recon
-from src.loader import compute_all, fund_equity_curve, fund_nav_curve
+from src.loader import compute_all, fund_nav_curve
 
 setup_page("Fund Overview", "🏦")
 
@@ -58,7 +58,10 @@ daily_agg = daily_agg.sort_values("date")
 curve = daily_agg.set_index("date").cumsum().rename(
     columns={"gross_pnl": "Gross", "net_pnl": "Net", "eligible_pnl": "Eligible"}
 )
-charts.show_line(curve, key="fund_eq", height=330, y_title="Cumulative PnL (USD)")
+p = colors()
+# Semantic colors: green=raw profit, blue=after trading costs, amber=after all overhead
+charts.show_line(curve, key="fund_eq", height=330, y_title="Cumulative PnL (USD)",
+                 series_colors=[p["good"], p["accent2"], p["warn"]])
 nav = fund_nav_curve(pm_net, results["aum"])
 st.caption(
     f"Gross / Net / Eligible PnL (drag to zoom). "

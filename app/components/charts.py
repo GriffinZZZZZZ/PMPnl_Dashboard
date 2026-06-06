@@ -20,6 +20,14 @@ from app.components.theme import colors
 SANS = "IBM Plex Sans"
 DISPLAY = "Fraunces"
 
+# Vega-Lite category20 — 20 perceptually distinct colors for dense multi-series charts.
+_CATEGORY20 = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+    "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5",
+]
+
 
 def _cfg(chart: alt.Chart, p: dict, *, legend_bottom: bool = True) -> alt.Chart:
     """Apply shared axis/legend/title/view styling from the palette."""
@@ -96,17 +104,47 @@ def _hover_zoom_params(x: str):
     return nearest, zoom
 
 
-def show_line(df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
-              height: int = 320, title: str | None = None) -> None:
-    """Render a multi-series line chart with drag-zoom, hover guide, centered legend."""
+def show_line(
+    df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
+    height: int = 320, title: str | None = None,
+    series_colors: list[str] | None = None,
+) -> None:
+    """Render a multi-series line chart with drag-zoom, hover guide, centered legend.
+
+    Args:
+        series_colors: optional explicit color per series (same order as df columns).
+            When None, theme scheme is used for ≤8 series; category20 for larger sets.
+            IMPORTANT: always pass ``domain`` alongside ``range`` so Altair's
+            alphabetical sort doesn't mis-map colors to lines (fixed here).
+    """
     p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
     data = _zoom_filter(data, x, key)
     series = [c for c in data.columns if c != x]
+    n = len(series)
+
+    # Determine color range and whether to use a custom bottom legend.
+    if series_colors is not None:
+        palette = list(series_colors)[:n]
+        use_native_legend = False
+    elif n <= len(p["scheme"]):
+        palette = p["scheme"][:n]
+        use_native_legend = False
+    else:
+        # Many series: use category20, rely on Altair's native legend.
+        palette = _CATEGORY20[:n]
+        use_native_legend = True
+
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
     xenc = _xenc(x)
     nearest, zoom = _hover_zoom_params(x)
-    color = alt.Color("Series:N", scale=alt.Scale(range=p["scheme"]), legend=None)
+    # domain= ensures Altair assigns colors in the SAME order as our legend, not alphabetically.
+    color_scale = alt.Scale(domain=series, range=palette)
+    color = alt.Color(
+        "Series:N",
+        scale=color_scale,
+        legend=alt.Legend(orient="bottom", direction="horizontal") if use_native_legend else None,
+    )
     base = alt.Chart(long)
     lines = base.mark_line(strokeWidth=2).encode(
         x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")), color=color,
@@ -120,7 +158,8 @@ def show_line(df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "US
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
     chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
     event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
-    _legend([(s, p["scheme"][i % len(p["scheme"])]) for i, s in enumerate(series)])
+    if not use_native_legend:
+        _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
 
