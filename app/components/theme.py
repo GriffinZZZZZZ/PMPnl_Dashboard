@@ -21,11 +21,13 @@ _COLORS = {
         "bg": "#0F141C", "surface": "#161D29", "border": "#243044",
         "text": "#E7ECF5", "muted": "#8A94A8", "accent": "#4FD1C5", "accent2": "#6AA0FF",
         "good": "#3FB870", "bad": "#F2645A", "warn": "#E3B341",
+        "scheme": ["#4FD1C5", "#6AA0FF", "#E3B341", "#C792EA", "#F78C6B", "#86E1A0", "#7FB3FF", "#E06C9F"],
     },
     "light": {
         "bg": "#F5F4EF", "surface": "#FFFFFF", "border": "#E3DFD5",
         "text": "#1C2430", "muted": "#6B7280", "accent": "#0E8A7D", "accent2": "#3A6FD8",
         "good": "#1F9D55", "bad": "#D64545", "warn": "#B9791B",
+        "scheme": ["#0E8A7D", "#3A6FD8", "#B9791B", "#8A5BD6", "#C2603F", "#2E9E6B", "#4A86C5", "#B0508A"],
     },
 }
 

@@ -78,11 +78,8 @@ with right:
 section("Accrued Comp Liability Over Time")
 liab = comp_liability_curve(results["payoff_daily"], results["pm_net_daily"])
 liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_pnl": "Comp % of Net PnL"})
-st.altair_chart(
-    charts.dual_line(liab, "Accrued Comp", "Comp % of Net PnL", left_title="Accrued Comp (USD)",
-                     right_title="Comp % of Net PnL", height=320),
-    width="stretch",
-)
+charts.show_dual(liab, "Accrued Comp", "Comp % of Net PnL", key="comp_liab",
+                 left_title="Accrued Comp (USD)", right_title="Comp % of Net PnL", height=320)
 st.caption("Red area = comp the fund has booked as a liability; teal line = that comp as a share of net PnL to date.")
 
 # ---- netting risk -----------------------------------------------------------

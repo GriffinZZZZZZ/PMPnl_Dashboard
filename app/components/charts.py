@@ -1,15 +1,19 @@
 """Theme-aware Altair chart builders shared by every page.
 
-Altair (Vega-Lite, bundled with Streamlit, pure-Python) replaces the bare
-``st.*_chart`` calls so we can control what those cannot: angled axis labels,
-zoom/pan, legend placement, tooltips, sorting, diverging colors, waterfalls, and
-dual-axis overlays. Every builder reads the active palette from ``theme`` so
-charts restyle instantly when the user switches theme.
+Altair (Vega-Lite, bundled with Streamlit, pure-Python) gives us angled axis
+labels, tooltips, sorting, diverging colors, waterfalls, and dual-axis overlays.
+
+Time-series charts (`show_line` / `show_area` / `show_dual`) are *rendered* here
+(not just built) so they can add: a **drag-a-region zoom directly on the chart**
+(Streamlit selection event → rescale + Reset), a **hover vertical guide line**,
+and a **centered legend** below the plot. Categorical/scatter charts stay pure
+builders that the page renders with ``st.altair_chart``.
 """
 from __future__ import annotations
 
 import altair as alt
 import pandas as pd
+import streamlit as st
 
 from app.components.theme import colors
 
@@ -36,52 +40,141 @@ def _cfg(chart: alt.Chart, p: dict, *, legend_bottom: bool = True) -> alt.Chart:
     )
 
 
-def _overview(data: pd.DataFrame, x: str, p: dict, *, y: str, color_field: str | None = None,
-              line_color: str | None = None, height: int = 44):
-    """Small lower strip carrying an x-interval brush; returns (brush, overview chart).
-
-    Drag a rectangle on this strip to zoom the detail chart above it (no scroll-wheel).
-    """
-    brush = alt.selection_interval(encodings=["x"])
-    enc = dict(
-        x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y", labelFontSize=9)),
-        y=alt.Y(f"{y}:Q", title=None, axis=None),
+# ---------------------------------------------------------------------------
+# Time-series rendering helpers: drag-to-zoom + hover guide + centered legend
+# ---------------------------------------------------------------------------
+def _legend(items: list[tuple[str, str]]) -> None:
+    """Render a centered legend (label + color swatch) below a chart."""
+    chips = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:.4rem;margin:0 .8rem;">'
+        f'<span style="width:12px;height:12px;border-radius:3px;background:{c};display:inline-block;"></span>'
+        f'<span style="font-size:.82rem;color:var(--st-text-color);">{lbl}</span></span>'
+        for lbl, c in items
     )
-    if color_field:
-        enc["color"] = alt.Color(f"{color_field}:N", legend=None)
-    ov = (alt.Chart(data).mark_line(opacity=0.55, color=line_color or p["accent2"])
-          .encode(**enc).add_params(brush).properties(height=height))
-    return brush, ov
+    st.markdown(f'<div style="text-align:center;margin:-.6rem 0 .4rem 0;">{chips}</div>',
+                unsafe_allow_html=True)
 
 
-def line(df: pd.DataFrame, *, x: str = "date", height: int = 300, zoom: bool = True,
-         title: str | None = None, y_title: str = "USD", date_fmt: str = "%b %Y") -> alt.Chart:
-    """Multi-series line chart (wide df). Drag-to-zoom via a lower brush strip; legend bottom."""
+def _zoom_filter(data: pd.DataFrame, x: str, key: str) -> pd.DataFrame:
+    """Filter ``data`` to the stored zoom window (drag selection), if any.
+
+    Zooming = filtering the data to the selected date range and letting the axis
+    auto-scale. This is far more robust than constraining a temporal scale domain.
+    """
+    rng = st.session_state.get(f"zoom_{key}")
+    if rng and len(rng) == 2:
+        lo, hi = pd.Timestamp(float(rng[0]), unit="ms"), pd.Timestamp(float(rng[1]), unit="ms")
+        return data[(data[x] >= lo) & (data[x] <= hi)]
+    return data
+
+
+def _apply_zoom(event, key: str, x: str) -> None:
+    """Read the drag selection from a chart event, store it on change, offer Reset."""
+    zkey = f"zoom_{key}"
+    try:
+        sel = (event.selection or {}).get("zoom") or {}
+    except Exception:
+        sel = {}
+    rng = sel.get(x)
+    if rng and len(rng) == 2:
+        rng = [float(rng[0]), float(rng[1])]
+        if st.session_state.get(zkey) != rng:
+            st.session_state[zkey] = rng
+            st.rerun()
+    if st.session_state.get(zkey) is not None:
+        st.button("⟲ Reset zoom", key=f"rz_{key}",
+                  on_click=lambda: st.session_state.pop(zkey, None))
+
+
+def _xenc(x: str):
+    return alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"))
+
+
+def _hover_zoom_params(x: str):
+    nearest = alt.selection_point(nearest=True, on="pointerover", fields=[x], empty=False)
+    zoom = alt.selection_interval(encodings=["x"], name="zoom")
+    return nearest, zoom
+
+
+def show_line(df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
+              height: int = 320, title: str | None = None) -> None:
+    """Render a multi-series line chart with drag-zoom, hover guide, centered legend."""
     p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
+    data = _zoom_filter(data, x, key)
     series = [c for c in data.columns if c != x]
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
-    x_axis = alt.Axis(format=date_fmt)
-    if zoom:
-        brush, ov = _overview(long, x, p, y="value", color_field="Series")
-        x_enc = alt.X(f"{x}:T", title=None, axis=x_axis, scale=alt.Scale(domain=brush))
-    else:
-        x_enc = alt.X(f"{x}:T", title=None, axis=x_axis)
-    detail = (
-        alt.Chart(long).mark_line(strokeWidth=2)
-        .encode(
-            x=x_enc,
-            y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
-            color=alt.Color("Series:N", legend=alt.Legend(title=None, orient="bottom")),
-            tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
-                     alt.Tooltip("value:Q", format=",.0f", title="Value")],
-        )
-        .properties(height=height, title=title or "")
+    xenc = _xenc(x)
+    nearest, zoom = _hover_zoom_params(x)
+    color = alt.Color("Series:N", scale=alt.Scale(range=p["scheme"]), legend=None)
+    base = alt.Chart(long)
+    lines = base.mark_line(strokeWidth=2).encode(
+        x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")), color=color,
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
+                 alt.Tooltip("value:Q", format=",.0f", title="Value")],
     )
-    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
-    return _cfg(chart, p)
+    selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    points = lines.mark_point(size=55, filled=True).encode(
+        opacity=alt.condition(nearest, alt.value(1), alt.value(0)))
+    rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
+        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
+    chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
+    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _legend([(s, p["scheme"][i % len(p["scheme"])]) for i, s in enumerate(series)])
+    _apply_zoom(event, key, x)
 
 
+def show_area(df: pd.DataFrame, val: str, *, key: str, x: str = "date", height: int = 280,
+              color: str | None = None, y_title: str = "USD", title: str | None = None) -> None:
+    """Render a single-series area with drag-zoom and a hover guide line."""
+    p = colors()
+    c = color or p["bad"]
+    data = df.reset_index() if x not in df.columns else df.copy()
+    data = _zoom_filter(data, x, key)
+    xenc = _xenc(x)
+    nearest, zoom = _hover_zoom_params(x)
+    base = alt.Chart(data)
+    area = base.mark_area(opacity=0.75, line={"color": c}, color=c).encode(
+        x=xenc, y=alt.Y(f"{val}:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=",.0f")])
+    selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3]).encode(
+        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
+    chart = _cfg(alt.layer(area, selectors, rule).properties(height=height, title=title or ""), p)
+    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _apply_zoom(event, key, x)
+
+
+def show_dual(df: pd.DataFrame, left: str, right: str, *, key: str, x: str = "date",
+              left_title: str = "USD", right_title: str = "%", height: int = 300,
+              title: str | None = None) -> None:
+    """Render an area (left $) + line (right %) dual-axis chart with zoom + hover."""
+    p = colors()
+    data = df.reset_index() if x not in df.columns else df.copy()
+    data = _zoom_filter(data, x, key)
+    xenc = _xenc(x)
+    nearest, zoom = _hover_zoom_params(x)
+    base = alt.Chart(data)
+    left_layer = base.mark_area(opacity=0.6, color=p["bad"], line={"color": p["bad"]}).encode(
+        x=xenc, y=alt.Y(f"{left}:Q", title=left_title, axis=alt.Axis(titleColor=p["bad"], titleAnchor="middle")))
+    right_layer = base.mark_line(strokeWidth=2.5, color=p["accent"]).encode(
+        x=xenc, y=alt.Y(f"{right}:Q", title=right_title,
+                        axis=alt.Axis(format=".0%", titleColor=p["accent"], titleAnchor="middle")))
+    selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3]).encode(
+        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)),
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{left}:Q", format=",.0f", title=left_title),
+                 alt.Tooltip(f"{right}:Q", format=".1%", title=right_title)])
+    layered = (alt.layer(left_layer, right_layer, selectors, rule)
+               .resolve_scale(y="independent").properties(height=height, title=title or ""))
+    event = st.altair_chart(_cfg(layered, p), key=key, on_select="rerun", selection_mode=["zoom"])
+    _legend([(left_title, p["bad"]), (right_title, p["accent"])])
+    _apply_zoom(event, key, x)
+
+
+# ---------------------------------------------------------------------------
+# Pure builders (page renders these with st.altair_chart)
+# ---------------------------------------------------------------------------
 def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
         sort_by_value: bool = True, diverging: bool = False, color: str | None = None,
         height: int = 320, title: str | None = None, fmt: str = "~s",
@@ -124,65 +217,13 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
         .encode(
             x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
             y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
-            color=alt.Color(f"{color_field}:N",
+            color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]),
                             legend=alt.Legend(title=None, orient="bottom", columns=6)),
             tooltip=tooltip,
         )
         .properties(height=height, title=title or "")
     )
     return _cfg(ch, p)
-
-
-def area(df: pd.DataFrame, val: str, *, x: str = "date", height: int = 280, zoom: bool = True,
-         color: str | None = None, y_title: str = "USD", title: str | None = None) -> alt.Chart:
-    """Single-series filled area (e.g. accrued liability) with drag-to-zoom."""
-    p = colors()
-    data = df.reset_index() if x not in df.columns else df.copy()
-    c = color or p["bad"]
-    if zoom:
-        brush, ov = _overview(data, x, p, y=val, line_color=c)
-        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"), scale=alt.Scale(domain=brush))
-    else:
-        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"))
-    detail = (
-        alt.Chart(data).mark_area(opacity=0.75, line={"color": c}, color=c)
-        .encode(
-            x=x_enc,
-            y=alt.Y(f"{val}:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
-            tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=",.0f")],
-        )
-        .properties(height=height, title=title or "")
-    )
-    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
-    return _cfg(chart, p)
-
-
-def dual_line(df: pd.DataFrame, left: str, right: str, *, x: str = "date",
-              left_title: str = "USD", right_title: str = "%", height: int = 300,
-              title: str | None = None, zoom: bool = True) -> alt.Chart:
-    """Area (left axis, $) + line (right axis, %) on independent scales, with drag-to-zoom."""
-    p = colors()
-    data = df.reset_index() if x not in df.columns else df.copy()
-    if zoom:
-        brush, ov = _overview(data, x, p, y=left, line_color=p["bad"])
-        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"), scale=alt.Scale(domain=brush))
-    else:
-        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"))
-    base = alt.Chart(data).encode(x=x_enc)
-    left_layer = base.mark_area(opacity=0.65, color=p["bad"], line={"color": p["bad"]}).encode(
-        y=alt.Y(f"{left}:Q", title=left_title, axis=alt.Axis(titleColor=p["bad"], titleAnchor="middle")),
-        tooltip=[alt.Tooltip(f"{left}:Q", format=",.0f", title=left_title)],
-    )
-    right_layer = base.mark_line(strokeWidth=2.5, color=p["accent"]).encode(
-        y=alt.Y(f"{right}:Q", title=right_title,
-                axis=alt.Axis(format=".0%", titleColor=p["accent"], titleAnchor="middle")),
-        tooltip=[alt.Tooltip(f"{right}:Q", format=".1%", title=right_title)],
-    )
-    detail = alt.layer(left_layer, right_layer).resolve_scale(y="independent").properties(
-        height=height, title=title or ""
-    )
-    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
-    return _cfg(chart, p)
 
 
 def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320,

@@ -39,8 +39,8 @@ kpi_row(cards)
 # ---- Fund equity curve ------------------------------------------------------
 section("Fund Equity Curve — Gross vs Net")
 curve = fund_equity_curve(results["pm_net_daily"])
-st.altair_chart(charts.line(curve, height=330, y_title="Cumulative PnL (USD)"), width="stretch")
-st.caption("The gap between Gross and Net is the cost bridge: financing, borrow, and commission. Drag to zoom.")
+charts.show_line(curve, key="fund_eq", height=330, y_title="Cumulative PnL (USD)")
+st.caption("The gap between Gross and Net is the cost bridge: financing, borrow, and commission. Drag a region on the chart to zoom.")
 
 # ---- Pod / PM leaderboard ---------------------------------------------------
 section("Pod & PM Leaderboard")

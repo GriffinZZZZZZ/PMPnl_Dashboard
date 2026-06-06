@@ -62,7 +62,7 @@ kpi_row([
 section(f"{title} — Equity Curve")
 curve = sel_daily.groupby("date")[["gross_pnl", "net_pnl"]].sum().sort_index().cumsum()
 curve.columns = ["Gross", "Net"]
-st.altair_chart(charts.line(curve, height=300, y_title="Cumulative PnL (USD)"), width="stretch")
+charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)")
 
 # ---- Gross -> Net -> Investor bridge (waterfall + income statement) ---------
 section("Gross → Net → Investor Bridge")
@@ -148,8 +148,7 @@ hwm_df = sel_payoff.groupby("date")[["cum_net", "hwm", "accrued_comp"]].sum().so
 c1, c2 = st.columns([2, 1])
 with c1:
     cn = hwm_df[["cum_net", "hwm"]].rename(columns={"cum_net": "Cumulative Net", "hwm": "High-Water Mark"})
-    st.altair_chart(charts.line(cn, height=300, y_title="USD", title="Cumulative Net vs High-Water Mark"),
-                    width="stretch")
+    charts.show_line(cn, key="pod_hwm", height=300, y_title="USD", title="Cumulative Net vs High-Water Mark")
 with c2:
-    st.altair_chart(charts.area(hwm_df.rename(columns={"accrued_comp": "Accrued Comp"}), "Accrued Comp",
-                                height=300, title="Accrued Comp Liability"), width="stretch")
+    charts.show_area(hwm_df.rename(columns={"accrued_comp": "Accrued Comp"}), "Accrued Comp",
+                     key="pod_accr", height=300, title="Accrued Comp Liability")
