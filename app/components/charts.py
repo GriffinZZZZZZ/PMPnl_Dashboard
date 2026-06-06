@@ -261,6 +261,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
             x=alt.X(f"{x}:Q"), y=alt.Y(f"{y}:Q"),
             text=alt.Text(f"{label_field}:N"),
             color=alt.value(p["muted"]),
+            tooltip=alt.value(None),  # prevent duplicate tooltip from text layer
         )
         layers.append(labels)
     if slope1_line:
