@@ -74,6 +74,8 @@ def compute_payoff(
         pm_net_daily: per-PM daily frame containing ``[date, pm_id, net_pnl]``.
         pms: roster with ``[pm_id, payout_ratio, hurdle_rate, initial_hwm,
             pm_aum, loss_carryforward]``.
+        Note: capital charge (hurdle_rate × pm_aum × dt) is already deducted
+        from ``eligible_pnl`` by the cost engine, so no hurdle offset here.
         cfg: parsed config; reads ``cfg['comp_tiers']``.
         payout_ratio_override: if given, replaces every PM's BASE payout ratio
             (used by the dashboard sensitivity slider; tiers still add on top).
@@ -82,7 +84,7 @@ def compute_payoff(
         Frame ``[date, pm_id, net_pnl, cum_net, hwm, hurdle_amt,
         loss_carryforward, profit_above, accrued_comp, daily_comp]``.
     """
-    df = add_cumulative(pm_net_daily[["date", "pm_id", "net_pnl"]], "net_pnl", "pm_id", "cum_net")
+    df = add_cumulative(pm_net_daily[["date", "pm_id", "eligible_pnl"]], "eligible_pnl", "pm_id", "cum_net")
 
     meta = pms.set_index("pm_id")
     cols = ["payout_ratio", "hurdle_rate", "initial_hwm", "pm_aum"]
@@ -97,15 +99,16 @@ def compute_payoff(
     grp = df.groupby("pm_id", sort=False)
     # Day ordinal t = 1..n within each PM (time-scaled hurdle).
     df["t"] = grp.cumcount() + 1
+    # hurdle_amt kept for audit display; capital charge already deducted in eligible_pnl.
     df["hurdle_amt"] = df["hurdle_rate"] * df["pm_aum"] * (df["t"] * DT)
 
     # Running high-water mark, floored at the initial HWM.
     df["hwm"] = grp["cum_net"].cummax()
     df["hwm"] = df[["hwm", "initial_hwm"]].max(axis=1)
 
-    # Profit above HWM that is eligible for comp (hurdle + loss carryforward first).
+    # Profit above HWM eligible for comp (capital charge already in eligible_pnl; no double-count).
     df["profit_above"] = (
-        df["hwm"] - df["initial_hwm"] - df["hurdle_amt"] - df["loss_carryforward"]
+        df["hwm"] - df["initial_hwm"] - df["loss_carryforward"]
     ).clip(lower=0)
 
     tiers = cfg.get("comp_tiers") or _FLAT_TIERS
@@ -117,7 +120,7 @@ def compute_payoff(
     )
     return df[
         [
-            "date", "pm_id", "net_pnl", "cum_net", "hwm", "hurdle_amt",
+            "date", "pm_id", "eligible_pnl", "cum_net", "hwm", "hurdle_amt",
             "loss_carryforward", "profit_above", "accrued_comp", "daily_comp",
         ]
     ]

@@ -183,7 +183,8 @@ def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
     p = colors()
     df = data.copy()
     sortspec = alt.EncodingSortField(field=val, order="descending") if sort_by_value else None
-    cat_axis = alt.Axis(labelAngle=0 if horizontal else -45, title=cat_title)
+    cat_axis = alt.Axis(labelAngle=0 if horizontal else -45, title=cat_title,
+                        labelLimit=0, labelOverlap=False)
     val_axis = alt.Axis(format=fmt, titleAnchor="middle")
     cat_channel = alt.Y(f"{cat}:N", sort=sortspec, axis=cat_axis) if horizontal else \
         alt.X(f"{cat}:N", sort=sortspec, axis=cat_axis)

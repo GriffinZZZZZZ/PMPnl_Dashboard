@@ -7,10 +7,9 @@ from src.engine import economics
 from tests.conftest import pms_df
 
 
-def test_investor_net_is_fund_net_minus_comp(simple_cfg):
-    """With center as pass-through, investor_net = fund_net - total_comp."""
-    econ = economics.investor_economics(fund_net=500.0, total_comp=80.0, cfg=simple_cfg)
-    # investor net = 500 - 80 = 420 (center already deducted in fund_net)
+def test_investor_net_is_fund_eligible_minus_comp(simple_cfg):
+    """investor_net = fund_eligible_pnl - total_comp."""
+    econ = economics.investor_economics(500.0, total_comp=80.0, cfg=simple_cfg)
     assert econ["investor_net"] == 420.0
     assert round(econ["comp_expense_ratio"], 6) == round(80 / 500, 6)
 

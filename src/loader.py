@@ -52,12 +52,17 @@ def load_all() -> dict[str, pd.DataFrame]:
 
 
 @_cache(show_spinner=False)
-def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
+def compute_all(
+    payout_ratio_override: float | None = None,
+    date_from: str | None = None,
+    date_to:   str | None = None,
+) -> dict[str, Any]:
     """Run the full engine and return the results bundle used by all pages.
 
     Args:
-        payout_ratio_override: optional fund-wide payout ratio for the dashboard
-            sensitivity slider. ``None`` uses each PM's configured ratio.
+        payout_ratio_override: optional fund-wide payout ratio for the sensitivity slider.
+        date_from: ISO date string (YYYY-MM-DD) for start of analysis window; defaults to all data.
+        date_to:   ISO date string for end of analysis window.
 
     Returns:
         A dict with raw rosters, daily frames, roll-ups, and fund economics.
@@ -68,16 +73,29 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
     pms         = raw["portfolio_managers"]
     instruments = raw["security_master"]
 
-    position_frame = pnl.build_position_frame(raw["eod_prices"], raw["eod_positions"], instruments)
+    # Apply date filter before engine runs (affects PnL, costs, and comp calculations).
+    prices_f    = raw["eod_prices"].copy()
+    positions_f = raw["eod_positions"].copy()
+    if date_from:
+        dt_from = pd.Timestamp(date_from)
+        prices_f    = prices_f[prices_f["date"] >= dt_from]
+        positions_f = positions_f[positions_f["date"] >= dt_from]
+    if date_to:
+        dt_to = pd.Timestamp(date_to)
+        prices_f    = prices_f[prices_f["date"] <= dt_to]
+        positions_f = positions_f[positions_f["date"] <= dt_to]
+
+    position_frame = pnl.build_position_frame(prices_f, positions_f, instruments)
     pm_daily = pnl.pm_daily_gross(position_frame)
     pm_net_daily = costs.add_costs(pm_daily, cfg, pms)
 
     payoff_daily = payoff.compute_payoff(pm_net_daily, pms, cfg, payout_ratio_override)
     total_comp = float(payoff.total_comp_by_pm(payoff_daily)["total_comp"].sum())
 
-    fund_net = float(pm_net_daily["net_pnl"].sum())
-    fund_gross = float(pm_net_daily["gross_pnl"].sum())
-    econ = economics.investor_economics(fund_net, total_comp, cfg)
+    fund_gross    = float(pm_net_daily["gross_pnl"].sum())
+    fund_net      = float(pm_net_daily["net_pnl"].sum())
+    fund_eligible = float(pm_net_daily["eligible_pnl"].sum())
+    econ = economics.investor_economics(fund_eligible, total_comp, cfg)
 
     return {
         "cfg": cfg,
@@ -89,16 +107,17 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
         "payoff_daily": payoff_daily,
         "total_comp_by_pm": payoff.total_comp_by_pm(payoff_daily),
         "effective_payout_rates": payoff.effective_payout_rates(payoff_daily),
-        "fund_gross": fund_gross,
-        "fund_net": fund_net,
-        "total_comp": total_comp,
+        "fund_gross":        fund_gross,
+        "fund_net":          fund_net,
+        "fund_eligible_pnl": fund_eligible,
+        "total_comp":        total_comp,
         "center_cost": econ["center_cost"],
         "investor_net": econ["investor_net"],
         "comp_expense_ratio": econ["comp_expense_ratio"],
         "aum": econ["aum"],
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
-        "prices": raw["eod_prices"],
+        "prices": prices_f,
     }
 
 

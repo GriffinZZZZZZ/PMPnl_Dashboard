@@ -92,7 +92,7 @@ def cost_table_by(pm_net_daily: pd.DataFrame, pms: pd.DataFrame, key: str = "pod
     capital, cost_ratio (NaN for gross ≤ 0), cost_pct_capital (always defined).
     Sorted by total_cost descending.
     """
-    cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center", "gross_pnl"]
+    cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center", "capital_charge", "gross_pnl"]
                  if c in pm_net_daily.columns]
     if key == "pm_id":
         df = pm_net_daily.copy()
@@ -100,7 +100,7 @@ def cost_table_by(pm_net_daily: pd.DataFrame, pms: pd.DataFrame, key: str = "pod
         roster = pms[["pm_id", key]].drop_duplicates("pm_id")
         df = pm_net_daily.merge(roster, on="pm_id", how="left")
     g = df.groupby(key, as_index=False)[cost_cols].sum()
-    cost_sum_cols = [c for c in ["financing", "borrow", "commission", "fx", "center"] if c in g.columns]
+    cost_sum_cols = [c for c in ["financing", "borrow", "commission", "fx", "center", "capital_charge"] if c in g.columns]
     g["total_cost"] = g[cost_sum_cols].sum(axis=1)
     # cost/gross: only defined when gross > 0 (losers show NaN -> "n/a" in UI)
     g["cost_ratio"] = g["total_cost"] / g["gross_pnl"].where(g["gross_pnl"] > 0)

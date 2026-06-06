@@ -1,9 +1,53 @@
-"""Controls & Reconciliation panel renderer (drives the 'trustable' story)."""
+"""Controls & Reconciliation panel renderer + global date range filter."""
 from __future__ import annotations
 
+import datetime
+
+import pandas as pd
 import streamlit as st
 
 from src.engine.recon import Check, all_passed
+
+
+def render_date_filter(first_date, last_date) -> None:
+    """Render a YTD-defaulting date range selector in the sidebar.
+
+    Stores selection in ``st.session_state["date_from"]`` / ``["date_to"]``.
+    Must be called from each page after ``setup_page()``.
+
+    Args:
+        first_date: earliest date available in the dataset (str or Timestamp).
+        last_date:  latest date available.
+    """
+    first = pd.Timestamp(first_date).date()
+    last  = pd.Timestamp(last_date).date()
+    ytd_start = datetime.date(last.year, 1, 1)
+    # Clamp YTD start to the actual data range.
+    ytd_start = max(ytd_start, first)
+
+    # Initialize defaults on first load.
+    if "date_from" not in st.session_state:
+        st.session_state["date_from"] = str(ytd_start)
+    if "date_to" not in st.session_state:
+        st.session_state["date_to"] = str(last)
+
+    with st.sidebar:
+        st.markdown("**Analysis Period**")
+        col1, col2 = st.columns(2)
+        d_from = col1.date_input(
+            "From", value=pd.Timestamp(st.session_state["date_from"]).date(),
+            min_value=first, max_value=last, key="_df_from",
+        )
+        d_to = col2.date_input(
+            "To", value=pd.Timestamp(st.session_state["date_to"]).date(),
+            min_value=first, max_value=last, key="_df_to",
+        )
+        if d_from > d_to:
+            st.sidebar.warning("'From' must be before 'To'.")
+            d_from = d_to
+        st.session_state["date_from"] = str(d_from)
+        st.session_state["date_to"]   = str(d_to)
+        st.caption(f"YTD default: {ytd_start} → {last}")
 
 
 def _fmt(x: float) -> str:

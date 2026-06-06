@@ -13,7 +13,7 @@ def test_netting_cost_offsetting_pods(simple_cfg):
         {
             "date": pd.to_datetime(["2024-01-02", "2024-01-02"]),
             "pm_id": ["PM_A", "PM_B"],
-            "net_pnl": [100.0, -100.0],
+            "eligible_pnl": [100.0, -100.0],
         }
     )
     pms = pms_df(simple_cfg)
@@ -34,7 +34,7 @@ def test_netting_cost_zero_when_no_offset(simple_cfg):
         {
             "date": pd.to_datetime(["2024-01-02", "2024-01-02"]),
             "pm_id": ["PM_A", "PM_B"],
-            "net_pnl": [100.0, 100.0],
+            "eligible_pnl": [100.0, 100.0],
         }
     )
     pms = pms_df(simple_cfg)

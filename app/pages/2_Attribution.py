@@ -10,13 +10,19 @@ import altair as alt
 import streamlit as st
 
 from app.components import charts
+from app.components.controls import render_date_filter
 from app.components.kpi import fmt_pct, style_negative
 from app.components.theme import page_header, section, setup_page
+from src.db import query
 from src.engine import attribution
 from src.loader import compute_all
 
 setup_page("Attribution", "🧭")
-results = compute_all()
+bounds = query("SELECT MIN(date) as lo, MAX(date) as hi FROM eod_prices").iloc[0]
+render_date_filter(bounds["lo"], bounds["hi"])
+date_from = st.session_state.get("date_from")
+date_to   = st.session_state.get("date_to")
+results = compute_all(date_from=date_from, date_to=date_to)
 pms, pods = results["pms"], results["pods"]
 pm_net_daily = results["pm_net_daily"]
 pf = results["position_frame"]
@@ -121,9 +127,10 @@ label_map = {"pod_id": pod_name, "team_id": team_name,
              "pm_id": pms.set_index("pm_id")["pm_name"].to_dict()}[cost_key]
 ctab["Name"] = ctab[cost_key].map(label_map)
 
-present_cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center"] if c in ctab.columns]
+present_cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center", "capital_charge"]
+                     if c in ctab.columns]
 rename_map = {"financing": "Financing", "borrow": "Borrow", "commission": "Commission",
-              "fx": "FX", "center": "Center"}
+              "fx": "FX", "center": "Center", "capital_charge": "Capital Charge"}
 display_cost_cols = [rename_map[c] for c in present_cost_cols]
 ctab_display = ctab.rename(columns=rename_map)
 
@@ -163,8 +170,7 @@ st.altair_chart(
                    x_title="Annualized Volatility",
                    y_title="Annualized Return on Capital",
                    label_field="pm_name",
-                   slope1_line=True,
-                   title="Risk vs Return by PM"),
+                   slope1_line=True),
     width="stretch",
 )
 st.caption("Each point is a PM. Dashed line = Sharpe ratio 1.0 (return = vol). Points above the line have Sharpe > 1. Hover for Sharpe ratio.")

@@ -47,21 +47,21 @@ def allocate_center_cost(cfg: dict, pms: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def investor_economics(fund_net: float, total_comp: float, cfg: dict) -> dict:
+def investor_economics(fund_eligible: float, total_comp: float, cfg: dict) -> dict:
     """Fund-to-investor waterfall.
 
-    Center is already inside ``fund_net`` (pass-through); investor receives
-    ``fund_net - total_comp``.
+    ``fund_eligible`` = fund net PnL after trading costs, center, and capital charges.
+    Investor receives ``fund_eligible - total_comp``.
     """
-    investor_net = fund_net - total_comp
-    comp_ratio = total_comp / fund_net if fund_net > _EPS else float("nan")
+    investor_net = fund_eligible - total_comp
+    comp_ratio = total_comp / fund_eligible if fund_eligible > _EPS else float("nan")
     # Keep center_cost for reporting / R7 reconciliation.
     cc = center_cost_total(cfg)
     return {
         "aum": aum(cfg),
-        "fund_net": fund_net,
+        "fund_eligible": fund_eligible,
         "total_comp": total_comp,
-        "center_cost": cc,         # for display / R7 only
+        "center_cost": cc,
         "investor_net": investor_net,
         "comp_expense_ratio": comp_ratio,
     }

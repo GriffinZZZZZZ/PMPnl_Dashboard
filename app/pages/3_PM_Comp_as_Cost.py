@@ -9,14 +9,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import streamlit as st
 
 from app.components import charts
+from app.components.controls import render_date_filter
 from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row
 from app.components.theme import page_header, section, setup_page
 from src.config import blended_payout_ratio
+from src.db import query
 from src.engine import attribution
 from src.loader import comp_liability_curve, compute_all
 
 setup_page("Incentive Compensation Accrual", "💰")
-results = compute_all()
+bounds = query("SELECT MIN(date) as lo, MAX(date) as hi FROM eod_prices").iloc[0]
+render_date_filter(bounds["lo"], bounds["hi"])
+date_from = st.session_state.get("date_from")
+date_to   = st.session_state.get("date_to")
+results = compute_all(date_from=date_from, date_to=date_to)
 cfg = results["cfg"]
 pms, pods = results["pms"], results["pods"]
 pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
@@ -89,17 +95,16 @@ with c3:
         },
     )
 
-# ---- accrued comp liability + share of gross PnL ---------------------------
+# ---- accrued comp liability + share of eligible PnL -------------------------
 section("Accrued Comp Liability Over Time")
 liab = comp_liability_curve(results["payoff_daily"], results["pm_net_daily"])
-liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Gross PnL"})
-charts.show_dual(liab, "Accrued Comp", "Comp % of Gross PnL", key="comp_liab",
-                 left_title="Accrued Comp (USD)", right_title="Comp % of Gross PnL", height=320)
+liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Eligible PnL"})
+charts.show_dual(liab, "Accrued Comp", "Comp % of Eligible PnL", key="comp_liab",
+                 left_title="Accrued Comp (USD)", right_title="Comp % of Eligible PnL", height=320)
 st.caption(
     "Red area = cumulative incentive comp booked as a GAAP liability. "
-    "Teal line = that comp as a share of cumulative gross PnL. "
-    "Comp accrues only when a PM creates a new high above their HWM — "
-    "flat periods mean no PMs made new highs that day."
+    "Teal line = comp as a share of cumulative eligible PnL (gross PnL used as denominator proxy). "
+    "Comp accrues only when a PM creates a new high above their HWM."
 )
 
 # ---- netting risk time series -----------------------------------------------
@@ -127,22 +132,22 @@ st.caption("Netting cost = comp actually paid minus what the fund would pay if a
 section("Decision Tool — Payout Ratio Sensitivity")
 st.caption("Move the slider to see how a change in the fund-wide base payout ratio affects comp and investor net.")
 ratio = st.slider("Fund-wide base payout ratio (override)", 0.05, 0.40, 0.18, 0.01)
-scenario = compute_all(payout_ratio_override=ratio)
+scenario = compute_all(payout_ratio_override=ratio, date_from=date_from, date_to=date_to)
 
 d_comp = scenario["total_comp"] - results["total_comp"]
-d_inv = scenario["investor_net"] - results["investor_net"]
+d_inv  = scenario["investor_net"] - results["investor_net"]
 c1, c2, c3 = st.columns(3)
-c1.metric("Scenario Total Comp", fmt_money(scenario["total_comp"]), fmt_money(d_comp), delta_color="inverse")
-c2.metric("Scenario Investor Net", fmt_money(scenario["investor_net"]), fmt_money(d_inv))
-c3.metric("Scenario Comp / Net", fmt_pct(scenario["comp_expense_ratio"]))
+c1.metric("Scenario Total Comp",    fmt_money(scenario["total_comp"]), fmt_money(d_comp), delta_color="inverse")
+c2.metric("Scenario Investor Net",  fmt_money(scenario["investor_net"]), fmt_money(d_inv))
+c3.metric("Scenario Comp / Eligible", fmt_pct(scenario["comp_expense_ratio"]))
 
 current = blended_payout_ratio(cfg)
 import pandas as pd
 sweep_ratios = [round(x / 100, 2) for x in range(5, 41, 1)]
 sweep = pd.DataFrame({
     "payout_ratio": sweep_ratios,
-    "Total Comp": [compute_all(payout_ratio_override=r)["total_comp"] for r in sweep_ratios],
-    "Investor Net": [compute_all(payout_ratio_override=r)["investor_net"] for r in sweep_ratios],
+    "Total Comp":   [compute_all(payout_ratio_override=r, date_from=date_from, date_to=date_to)["total_comp"]   for r in sweep_ratios],
+    "Investor Net": [compute_all(payout_ratio_override=r, date_from=date_from, date_to=date_to)["investor_net"] for r in sweep_ratios],
 }).set_index("payout_ratio")
 st.altair_chart(
     charts.sweep_curve(sweep, "payout_ratio", current, height=320,

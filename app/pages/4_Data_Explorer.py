@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import streamlit as st
 
+from app.components.controls import render_date_filter
 from app.components.theme import page_header, section, setup_page
 from src.config import DB_PATH
 from src.db import list_tables, query, table_schema
@@ -22,6 +23,9 @@ page_header(
 if not DB_PATH.exists():
     st.error("Database not found. Run `python run.py` to generate it.")
     st.stop()
+
+bounds = query("SELECT MIN(date) as lo, MAX(date) as hi FROM eod_prices").iloc[0]
+render_date_filter(bounds["lo"], bounds["hi"])
 
 # ---- Schema browser ----------------------------------------------------------
 section("Database Schema")
