@@ -32,13 +32,17 @@ page_header("Fund Overview")
 
 # ---- KPI row ----------------------------------------------------------------
 gross     = results["fund_gross"]
+trading   = results["fund_trading"]
+nontrad   = results["fund_non_trading"]
 net       = results["fund_net"]
 eligible  = results["fund_eligible_pnl"]
 comp      = results["total_comp"]
 inv       = results["investor_net"]
 cards = [
     kpi_card("AUM", fmt_money(results["aum"])),
-    kpi_card("Gross PnL", fmt_money(gross), "before any costs", "up" if gross >= 0 else "down"),
+    kpi_card("Gross PnL", fmt_money(gross), "trading + non-trading", "up" if gross >= 0 else "down"),
+    kpi_card("Non-trading PnL", fmt_money(nontrad), "other income, one-off",
+             "up" if nontrad >= 0 else "down"),
     kpi_card("Net PnL", fmt_money(net), "after trading costs", "up" if net >= 0 else "down"),
     kpi_card("Eligible PnL", fmt_money(eligible), "after overhead & capital charge",
              "up" if eligible >= 0 else "down"),
@@ -82,6 +86,7 @@ pivot = (
     .cumsum()
     .rename(columns=pm_name_map)
 )
+pivot = pivot.reindex(sorted(pivot.columns), axis=1)
 charts.show_line(pivot, key="home_pm_ts", y_title=f"Cumulative {metric_label} (USD)", height=380)
 st.caption(f"Cumulative {metric_label} per PM over the selected period. Drag to zoom.")
 

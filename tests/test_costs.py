@@ -7,13 +7,16 @@ from src.engine import costs
 from tests.conftest import pms_df as _pms_df
 
 
-def _pm_daily(pm_id="PM_A", gross_pnl=100.0, gross_exposure=1000.0,
+def _pm_daily(pm_id="PM_A", trading_pnl=100.0, non_trading_pnl=0.0,
+              gross_exposure=1000.0, long_notional=1000.0,
               short_notional=500.0, traded_notional=200.0, fx_notional=0.0):
     return pd.DataFrame({
         "date":             pd.to_datetime(["2025-01-02"]),
         "pm_id":            [pm_id],
-        "gross_pnl":        [gross_pnl],
+        "trading_pnl":      [trading_pnl],
+        "non_trading_pnl":  [non_trading_pnl],
         "gross_exposure":   [gross_exposure],
+        "long_notional":    [long_notional],
         "short_notional":   [short_notional],
         "traded_notional":  [traded_notional],
         "fx_notional":      [fx_notional],
@@ -23,7 +26,7 @@ def _pm_daily(pm_id="PM_A", gross_pnl=100.0, gross_exposure=1000.0,
 def test_trading_costs_and_net_pnl(simple_cfg):
     """net_pnl = gross - trading costs only (financing+borrow+commission+fx); no center."""
     out = costs.add_costs(_pm_daily(), simple_cfg, _pms_df(simple_cfg)).iloc[0]
-    # financing = 0.252/252 * 1000 = 1.0
+    # financing = 0.252/252 * long_notional(1000) = 1.0  (longs only — NOT gross exposure)
     assert round(out["financing"], 6) == 1.0
     # borrow = 0.504/252 * 500 = 1.0
     assert round(out["borrow"], 6) == 1.0
@@ -34,6 +37,24 @@ def test_trading_costs_and_net_pnl(simple_cfg):
     # net_pnl = gross - trading costs (NO center)
     expected_net = 100.0 - 1.0 - 1.0 - 0.2 - 0.0
     assert abs(out["net_pnl"] - expected_net) < 1e-6
+
+
+def test_financing_charges_longs_only(simple_cfg):
+    """Financing is on long_notional only; shorts pay borrow, not financing (no double-charge)."""
+    # long_notional=0 → financing must be 0 even though short_notional > 0.
+    out = costs.add_costs(_pm_daily(long_notional=0.0, short_notional=500.0),
+                          simple_cfg, _pms_df(simple_cfg)).iloc[0]
+    assert round(out["financing"], 6) == 0.0
+    assert round(out["borrow"], 6) == 1.0   # shorts still pay borrow
+
+
+def test_gross_is_trading_plus_non_trading(simple_cfg):
+    """gross_pnl = trading_pnl + non_trading_pnl; net/eligible inherit the non-trading income."""
+    out = costs.add_costs(_pm_daily(trading_pnl=100.0, non_trading_pnl=30.0),
+                          simple_cfg, _pms_df(simple_cfg)).iloc[0]
+    assert abs(out["gross_pnl"] - 130.0) < 1e-9
+    # net = gross - trading costs (1+1+0.2) = 130 - 2.2
+    assert abs(out["net_pnl"] - (130.0 - 2.2)) < 1e-6
 
 
 def test_eligible_pnl_deducts_overhead(simple_cfg):
@@ -83,6 +104,8 @@ def test_bridge_three_tier(simple_cfg):
     )
     bridge = costs.bridge_components(pm_net)
     assert bridge["Gross PnL"] == 100.0
+    # Trading + Non-trading = Gross
+    assert abs(bridge["Trading PnL"] + bridge["Non-trading PnL"] - bridge["Gross PnL"]) < 1e-6
     assert bridge["Financing"] < 0
     # Gross + trading costs → Net PnL
     net_from_bridge = (bridge["Gross PnL"] + bridge["Financing"] + bridge["Borrow"]

@@ -68,6 +68,14 @@ CREATE TABLE IF NOT EXISTS eod_positions (
     PRIMARY KEY (date, pm_id, ticker)
 );
 
+CREATE TABLE IF NOT EXISTS eod_income (
+    date     TEXT NOT NULL,
+    pm_id    TEXT NOT NULL REFERENCES portfolio_managers(pm_id),
+    category TEXT NOT NULL,
+    amount   REAL NOT NULL,
+    PRIMARY KEY (date, pm_id, category)
+);
+
 CREATE TABLE IF NOT EXISTS trade_blotter (
     trade_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     date            TEXT    NOT NULL,
@@ -139,30 +147,33 @@ def write_database(
         db_path.unlink()
 
     conn = connect(db_path)
-    conn.executescript(_DDL)
-    conn.commit()
+    try:
+        conn.executescript(_DDL)
+        conn.commit()
 
-    # investment_teams comes from config; not a generated DataFrame.
-    teams_df = pd.DataFrame(cfg["teams"]).rename(columns={"name": "team_name"})[
-        ["team_id", "team_name"]
-    ]
+        # investment_teams comes from config; not a generated DataFrame.
+        teams_df = pd.DataFrame(cfg["teams"]).rename(columns={"name": "team_name"})[
+            ["team_id", "team_name"]
+        ]
 
-    write_order = [
-        ("strategy_pods",       tables["strategy_pods"]),
-        ("investment_teams",    teams_df),
-        ("portfolio_managers",  tables["portfolio_managers"]),
-        ("security_master",     tables["security_master"]),
-        ("eod_prices",          tables["eod_prices"]),
-        ("eod_positions",       tables["eod_positions"]),
-    ]
-    for tbl_name, df in write_order:
-        _write_table(conn, tbl_name, df)
+        write_order = [
+            ("strategy_pods",       tables["strategy_pods"]),
+            ("investment_teams",    teams_df),
+            ("portfolio_managers",  tables["portfolio_managers"]),
+            ("security_master",     tables["security_master"]),
+            ("eod_prices",          tables["eod_prices"]),
+            ("eod_positions",       tables["eod_positions"]),
+            ("eod_income",          tables["eod_income"]),
+        ]
+        for tbl_name, df in write_order:
+            _write_table(conn, tbl_name, df)
 
-    trades = _derive_trades(tables["eod_positions"], tables["eod_prices"])
-    _write_table(conn, "trade_blotter", trades)
+        trades = _derive_trades(tables["eod_positions"], tables["eod_prices"])
+        _write_table(conn, "trade_blotter", trades)
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _write_table(conn: sqlite3.Connection, name: str, df: pd.DataFrame) -> None:

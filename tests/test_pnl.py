@@ -15,7 +15,8 @@ def test_build_position_frame_mtm(two_day_positions):
     assert day2["gross_pnl"] == 100.0
     # gross exposure = |prev_quantity * prev_price| = 10 * 100 = 1000
     assert day2["gross_exposure"] == 1000.0
-    # long book -> no short notional; quantity unchanged -> no traded notional
+    # long book -> long_notional = 1000, no short notional (financing charges longs only)
+    assert day2["long_notional"] == 1000.0
     assert day2["short_notional"] == 0.0
     assert day2["traded_notional"] == 0.0
     # first day has no prior mark -> zero pnl
@@ -33,8 +34,9 @@ def test_short_position_metrics():
     day2 = pf[pf["date"] == dates[1]].iloc[0]
     # short 20 @ price drop 50->40 = +200 PnL for the short
     assert day2["gross_pnl"] == 200.0
-    # short notional = 20 * 50 = 1000
+    # short notional = 20 * 50 = 1000; long_notional = 0 (so no financing on this short)
     assert day2["short_notional"] == 1000.0
+    assert day2["long_notional"] == 0.0
 
 
 def test_traded_notional_on_turnover():

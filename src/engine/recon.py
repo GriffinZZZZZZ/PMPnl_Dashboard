@@ -4,7 +4,8 @@ These checks are the line between a trustworthy system and a toy. They are
 asserted in ``run.py`` and the pytest suite, and rendered live as green/red in
 the dashboard's Controls panel.
 
-    R1  Fund Gross == sum(Pod Gross) == sum(PM Gross)
+    R1  Fund Trading == sum(PM Trading) == sum(Position Gross);
+        Fund Non-trading == sum(eod_income); Fund Gross == Trading + Non-trading == sum(Pod Gross)
     R2  Fund Net   == sum(Pod Net)   == sum(PM Net)   (after trading costs only)
     R3  Total Comp == sum(PM accrued_comp_T)
     R4  Investor Net == Fund Eligible PnL - Total Comp
@@ -50,17 +51,25 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     """Compute all R1-R7 checks from the engine result bundle."""
     pm_net_daily = results["pm_net_daily"]
     pms          = results["pms"]
-    fund_gross   = results["fund_gross"]
-    fund_net     = results["fund_net"]
-    fund_eligible = results["fund_eligible_pnl"]
-    total_comp   = results["total_comp"]
-    investor_net = results["investor_net"]
+    fund_trading      = results.get("fund_trading", results["fund_gross"])
+    fund_non_trading  = results.get("fund_non_trading", 0.0)
+    fund_gross        = results["fund_gross"]
+    fund_net          = results["fund_net"]
+    fund_eligible     = results["fund_eligible_pnl"]
+    capital_charges   = results.get("fund_capital_charges", 0.0)
+    income_total      = results.get("income_total", fund_non_trading)
+    position_trading  = results.get("position_trading", fund_trading)
+    total_comp        = results["total_comp"]
+    investor_net      = results["investor_net"]
     pod = pnl_by_pod(pm_net_daily, pms)
 
     checks: list[Check] = []
 
-    # R1 — Fund Gross vs sum of PM / Pod gross (bottom-up MTM ties by construction).
-    checks.append(Check("Fund gross PnL = sum of every PM's gross", fund_gross, float(pm_net_daily["gross_pnl"].sum())))
+    # R1 — PnL composition: trading (bottom-up MTM) + non-trading income = gross.
+    checks.append(Check("Fund trading PnL = sum of every PM's trading", fund_trading, float(pm_net_daily["trading_pnl"].sum())))
+    checks.append(Check("Fund trading PnL = sum of every position's gross (bottom-up MTM)", fund_trading, position_trading))
+    checks.append(Check("Fund non-trading PnL = sum of eod_income table", fund_non_trading, income_total))
+    checks.append(Check("Fund gross PnL = trading + non-trading", fund_gross, fund_trading + fund_non_trading))
     checks.append(Check("Fund gross PnL = sum of every pod's gross", fund_gross, float(pod["gross_pnl"].sum())))
 
     # R2 — Fund Net (after trading costs) vs sum of PM / Pod net.
@@ -71,8 +80,12 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     sum_pm_comp = float(total_comp_by_pm(results["payoff_daily"])["total_comp"].sum())
     checks.append(Check("Total comp = sum of each PM's accrued comp", total_comp, sum_pm_comp))
 
-    # R4 — Investor net identity: eligible PnL (net - center - capital charge) minus comp.
-    checks.append(Check("Investor net = Fund eligible PnL - comp", fund_eligible - total_comp, investor_net))
+    # R4 — Capital charge flows back to investors: eligible − comp + capital_charges = investor_net.
+    checks.append(Check(
+        "Investor net = Fund eligible PnL − comp + capital charges",
+        fund_eligible - total_comp + capital_charges,
+        investor_net,
+    ))
 
     # R5 — Each pod net == sum of its PMs' net.
     pm_with_pod = pm_net_daily.merge(pms[["pm_id", "pod_id"]], on="pm_id", how="left")

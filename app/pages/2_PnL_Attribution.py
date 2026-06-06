@@ -11,7 +11,7 @@ import streamlit as st
 
 from app.components import charts
 from app.components.controls import render_date_filter
-from app.components.kpi import fmt_pct, style_negative
+from app.components.kpi import fmt_money, fmt_pct, style_negative
 from app.components.theme import page_header, section, setup_page
 from src.db import query
 from src.engine import attribution
@@ -74,11 +74,39 @@ with right2:
         width="stretch",
     )
 
+# ---- Non-trading income (other non-recurring) -------------------------------
+section("Non-trading Income by Category")
+st.markdown(
+    '<div class="explain">Instrument attribution above covers <b>Trading PnL</b> only '
+    '(mark-to-market). <b>Non-trading PnL</b> — one-off items like tax reclaims, fee '
+    'rebates, legal settlements, and corporate actions — is booked separately and added '
+    'to reach Gross PnL.</div>',
+    unsafe_allow_html=True,
+)
+income = results["eod_income"]
+inc_left, inc_right = st.columns([3, 2])
+with inc_left:
+    by_cat = (income.groupby("category", as_index=False)["amount"].sum()
+              .sort_values("amount", ascending=False))
+    st.altair_chart(
+        charts.bar(by_cat, "category", "amount", diverging=True, height=300,
+                   title="Non-trading Income by Category", val_title="Amount (USD)"),
+        width="stretch",
+    )
+with inc_right:
+    st.markdown(
+        f'<div class="callout">Trading PnL <span class="big">{fmt_money(results["fund_trading"])}</span> '
+        f'+ Non-trading PnL <b>{fmt_money(results["fund_non_trading"])}</b> '
+        f'= Gross PnL <b>{fmt_money(results["fund_gross"])}</b>.</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(f"{len(income):,} non-trading events across the selected period.")
+
 # ---- Top / bottom PnL positions + concentration ----------------------------
 section("Position Analysis")
 pos_left, pos_right = st.columns(2)
 with pos_left:
-    st.markdown("**Top & Bottom PnL Positions** — held by, return, and PnL")
+    st.markdown("**Top & Bottom 10 PnL Positions** — held by, return, and PnL")
     posn = attribution.top_bottom_positions(pf, instruments, pms, n=10)
     disp = posn.rename(columns={"ticker": "Ticker", "held_by": "Held By",
                                 "gross_pnl": "Gross PnL", "position_return": "Return"})
@@ -112,7 +140,7 @@ st.caption("NMV = net market value (signed, last date). High NMV/AUM = concentra
 # ---- cost attribution -------------------------------------------------------
 section("Cost Attribution")
 total_cost = float(pm_net_daily[["financing", "borrow", "commission",
-                                  "fx", "center"]].sum().sum())
+                                  "fx", "center", "capital_charge"]].sum().sum())
 fund_cost_ratio = total_cost / results["fund_gross"] if results["fund_gross"] else float("nan")
 m1, m2 = st.columns(2)
 m1.metric("Total Trading + Overhead Cost", f"${total_cost/1e6:,.1f}M",

@@ -127,7 +127,7 @@ st.markdown(
 ```bash
 sqlite3 data/pm_pnl.db
 .tables
-SELECT * FROM v_pm_roster;
+SELECT * FROM vw_manager_hierarchy;
 .quit
 ```
 
@@ -135,7 +135,7 @@ SELECT * FROM v_pm_roster;
 ```python
 import sqlite3, pandas as pd
 conn = sqlite3.connect("data/pm_pnl.db")
-df = pd.read_sql("SELECT * FROM v_pm_roster", conn)
+df = pd.read_sql("SELECT * FROM vw_manager_hierarchy", conn)
 conn.close()
 ```
 

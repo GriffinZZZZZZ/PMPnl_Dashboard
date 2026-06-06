@@ -1,13 +1,15 @@
 """Investor net economics — the fund-level waterfall LPs actually keep.
 
-Center cost is now a **pass-through** allocated to each PM daily and included in
-``pm_net``. So the investor waterfall simplifies to::
+Capital charge is a hard deduction from each PM's eligible PnL (lowers the comp base)
+but is a pass-through from PM books to the fund pool, which flows back to investors::
 
-    fund_net_pnl       = sum_pm pm_net          (center already deducted)
-    investor_net       = fund_net_pnl - total_comp
-    comp_expense_ratio = total_comp / fund_net_pnl
+    fund_eligible_pnl    = sum_pm eligible_pnl     (after trading costs, center, capital charge)
+    fund_capital_charges = sum_pm capital_charge    (pass-through: PM → fund pool → investor)
+    investor_net         = fund_eligible_pnl - total_comp + fund_capital_charges
+                         = fund_net_pnl - center_cost - total_comp
+    comp_expense_ratio   = total_comp / fund_eligible_pnl
 
-The center total is still tracked for reporting and reconciliation (R7).
+Center cost is tracked for reporting and reconciliation (R7).
 """
 from __future__ import annotations
 
@@ -47,19 +49,26 @@ def allocate_center_cost(cfg: dict, pms: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def investor_economics(fund_eligible: float, total_comp: float, cfg: dict) -> dict:
+def investor_economics(
+    fund_eligible: float,
+    total_comp: float,
+    cfg: dict,
+    capital_charges: float = 0.0,
+) -> dict:
     """Fund-to-investor waterfall.
 
-    ``fund_eligible`` = fund net PnL after trading costs, center, and capital charges.
-    Investor receives ``fund_eligible - total_comp``.
+    ``fund_eligible``   = sum of PM eligible PnL (after trading costs, center, capital charge).
+    ``capital_charges`` = sum of capital charges deducted from PM books; these flow back to
+                          the investor pool, so they are added back here.
+    Investor net = fund_eligible - comp + capital_charges = fund_net - center - comp.
     """
-    investor_net = fund_eligible - total_comp
+    investor_net = fund_eligible - total_comp + capital_charges
     comp_ratio = total_comp / fund_eligible if fund_eligible > _EPS else float("nan")
-    # Keep center_cost for reporting / R7 reconciliation.
     cc = center_cost_total(cfg)
     return {
         "aum": aum(cfg),
         "fund_eligible": fund_eligible,
+        "capital_charges": capital_charges,
         "total_comp": total_comp,
         "center_cost": cc,
         "investor_net": investor_net,

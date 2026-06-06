@@ -38,11 +38,11 @@ page_header(
 kpi_row([
     kpi_card("Total Accrued Comp", fmt_money(results["total_comp"]),
              "GAAP liability to date", "down", variant="cost"),
-    kpi_card("Comp / Net PnL", fmt_pct(results["comp_expense_ratio"]), "expense ratio", "flat"),
+    kpi_card("Comp / Eligible PnL", fmt_pct(results["comp_expense_ratio"]), "expense ratio", "flat"),
     kpi_card("Netting Cost", fmt_money(results["netting_cost"]),
              "comp on offset gains", "down", variant="cost"),
     kpi_card("Investor Net", fmt_money(results["investor_net"]),
-             "net PnL − comp", "up", variant="accent"),
+             "eligible − comp", "up", variant="accent"),
 ])
 
 # ---- comp by pod AND by team (two charts, no toggle) ----------------------
@@ -56,8 +56,8 @@ tier_txt = ", ".join(
 st.markdown(
     f'<div class="explain">Each PM has a contractual <b>base payout ratio</b> (% of eligible profit above HWM). '
     f'Structural ladder adds marginal points on larger profit ({tier_txt}). '
-    f'The <b>effective rate</b> is the realized blend. Comp is paid on net PnL <em>after</em> '
-    f'center cost pass-through.</div>',
+    f'The <b>effective rate</b> is the realized blend. Comp accrues on <em>eligible PnL</em> '
+    f'(net PnL − center overhead − capital charge).</div>',
     unsafe_allow_html=True,
 )
 
@@ -98,12 +98,12 @@ with c3:
 # ---- accrued comp liability + share of eligible PnL -------------------------
 section("Accrued Comp Liability Over Time")
 liab = comp_liability_curve(results["payoff_daily"], results["pm_net_daily"])
-liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Eligible PnL"})
-charts.show_dual(liab, "Accrued Comp", "Comp % of Eligible PnL", key="comp_liab",
-                 left_title="Accrued Comp (USD)", right_title="Comp % of Eligible PnL", height=320)
+liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Gross PnL"})
+charts.show_dual(liab, "Accrued Comp", "Comp % of Gross PnL", key="comp_liab",
+                 left_title="Accrued Comp (USD)", right_title="Comp % of Gross PnL", height=320)
 st.caption(
     "Red area = cumulative incentive comp booked as a GAAP liability. "
-    "Teal line = comp as a share of cumulative eligible PnL (gross PnL used as denominator proxy). "
+    "Teal line = comp as a share of cumulative gross PnL (a stable positive denominator). "
     "Comp accrues only when a PM creates a new high above their HWM."
 )
 

@@ -73,7 +73,7 @@ comp     = float(results["total_comp_by_pm"].set_index("pm_id").loc[sel_pms, "to
 cap      = float(pms.set_index("pm_id").loc[sel_pms, "pm_aum"].sum())
 kpi_row([
     kpi_card("Allocated Capital", fmt_money(cap)),
-    kpi_card("Gross PnL", fmt_money(gross), "before costs", "up" if gross >= 0 else "down"),
+    kpi_card("Gross PnL", fmt_money(gross), "trading + non-trading", "up" if gross >= 0 else "down"),
     kpi_card("Net PnL", fmt_money(net), "after trading costs", "up" if net >= 0 else "down"),
     kpi_card("Eligible PnL", fmt_money(eligible),
              f"{fmt_pct(eligible/cap if cap else 0)} on capital",
@@ -88,10 +88,12 @@ curve.columns = ["Gross", "Net", "Eligible"]
 charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)")
 
 # ---- Gross → Net → Eligible → Investor bridge --------------------------------
-section("Gross → Net → Eligible → Investor Bridge")
+section("Trading → Gross → Net → Eligible → Investor Bridge")
 bridge   = costs.bridge_components(sel_daily, sel_pms)
 investor = bridge["Eligible PnL"] - comp
 steps = [
+    ("Trading PnL",      bridge["Trading PnL"],     "total"),
+    ("+ Non-trading PnL",bridge["Non-trading PnL"], "delta"),
     ("Gross PnL",       bridge["Gross PnL"],      "total"),
     ("− Financing",     bridge["Financing"],       "delta"),
     ("− Borrow",        bridge["Borrow"],          "delta"),
@@ -110,7 +112,7 @@ with left:
 with right:
     p = colors()
     rows_html = ""
-    subtotals = {"Gross PnL", "Net PnL", "Eligible PnL", "Investor Net"}
+    subtotals = {"Trading PnL", "Gross PnL", "Net PnL", "Eligible PnL", "Investor Net"}
     for label, value, kind in steps:
         bold   = "font-weight:700;" if label in subtotals else ""
         indent = "" if label in subtotals else "padding-left:1.2rem;"
@@ -141,7 +143,7 @@ with left:
         width="stretch",
     )
 with right:
-    st.markdown("**Top & Bottom PnL Positions** — held by, return, and PnL")
+    st.markdown("**Top & Bottom 10 PnL Positions** — held by, return, and PnL")
     posn = attribution.top_bottom_positions(pf, results["instruments"], pms, n=10)
     disp = posn.rename(columns={"ticker": "Ticker", "held_by": "Held By",
                                 "gross_pnl": "Gross PnL", "position_return": "Return"})

@@ -48,6 +48,12 @@ def tiny_tables():
         "ticker":   ["EQ001"] * 3,
         "quantity": [10.0, 12.0, 12.0],  # buy 2 on day 2, hold on day 3
     })
+    eod_income = pd.DataFrame({
+        "date":     [dates[1]],
+        "pm_id":    ["PM_A"],
+        "category": ["Fee Rebate"],
+        "amount":   [1234.5],
+    })
     cfg = {"teams": [{"team_id": "T1", "name": "Team 1"}]}
     return {
         "strategy_pods":      strategy_pods,
@@ -55,6 +61,7 @@ def tiny_tables():
         "security_master":    security_master,
         "eod_prices":         eod_prices,
         "eod_positions":      eod_positions,
+        "eod_income":         eod_income,
     }, cfg
 
 
@@ -116,6 +123,14 @@ def test_professional_column_names_in_eod_positions(tmp_db):
     assert "quantity" in positions.columns
 
 
+def test_roundtrip_eod_income(tmp_db, tiny_tables):
+    tables, _ = tiny_tables
+    result = read_table("eod_income", path=tmp_db)
+    assert len(result) == len(tables["eod_income"])
+    assert {"date", "pm_id", "category", "amount"}.issubset(result.columns)
+    assert abs(result["amount"].sum() - tables["eod_income"]["amount"].sum()) < 1e-6
+
+
 def test_view_vw_manager_hierarchy(tmp_db):
     roster = query("SELECT * FROM vw_manager_hierarchy", path=tmp_db)
     assert "pod_name" in roster.columns
@@ -167,7 +182,8 @@ def test_list_tables(tmp_db):
     items = list_tables(path=tmp_db)
     names = [n for n, _ in items]
     for expected in ["strategy_pods", "investment_teams", "portfolio_managers",
-                     "security_master", "eod_prices", "eod_positions", "trade_blotter"]:
+                     "security_master", "eod_prices", "eod_positions", "eod_income",
+                     "trade_blotter"]:
         assert expected in names
     for expected in ["vw_manager_hierarchy", "vw_mtm_positions"]:
         assert expected in names

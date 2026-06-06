@@ -1,10 +1,15 @@
 """Gross → Net → Eligible PnL bridge: three-tier daily cost attribution.
 
+Gross PnL itself has two parts:
+    trading_pnl       = Σ prev_qty * Δprice                 (mark-to-market)
+    non_trading_pnl   = other non-recurring income          (from eod_income table)
+    gross_pnl         = trading_pnl + non_trading_pnl
+
 Rates in config are ANNUAL; charged daily via ``dt = 1/252``.
 
 Tier 1 — Trading costs (market-facing, booked against gross PnL):
-    financing_{pm,t}  = financing_rate * gross_exposure_{pm,t-1} * dt
-    borrow_{pm,t}     = borrow_rate    * short_notional_{pm,t-1} * dt
+    financing_{pm,t}  = financing_rate * long_notional_{pm,t-1} * dt   (longs are financed)
+    borrow_{pm,t}     = borrow_rate    * short_notional_{pm,t-1} * dt   (shorts pay borrow only)
     commission_{pm,t} = (commission_bps / 1e4) * traded_notional_{pm,t}
     fx_{pm,t}         = fx_rate        * fx_notional_{pm,t-1}     * dt
     net_pnl           = gross_pnl - trading_cost
@@ -44,6 +49,7 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
     Returns:
         Frame with added columns::
 
+            gross_pnl (= trading_pnl + non_trading_pnl),
             financing, borrow, commission, fx, center, capital_charge,
             trading_cost, overhead_cost, total_cost,
             net_pnl, eligible_pnl
@@ -55,8 +61,15 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
 
     df = pm_daily.copy()
 
-    # --- Tier 1: trading costs ---
-    df["financing"]  = c["financing_rate"] * df["gross_exposure"] * DT
+    # --- Gross PnL = trading (MTM) + non-trading (other non-recurring income) ---
+    if "trading_pnl" not in df.columns:           # backward-compat with old callers
+        df["trading_pnl"] = df["gross_pnl"]
+    if "non_trading_pnl" not in df.columns:
+        df["non_trading_pnl"] = 0.0
+    df["gross_pnl"] = df["trading_pnl"] + df["non_trading_pnl"]
+
+    # --- Tier 1: trading costs (financing on longs only; shorts pay borrow only) ---
+    df["financing"]  = c["financing_rate"] * df["long_notional"] * DT
     df["borrow"]     = c["borrow_rate"]    * df["short_notional"] * DT
     df["commission"] = (c["commission_bps"] / 1e4) * df["traded_notional"]
     df["fx"]         = c.get("fx_rate", 0.0) * df.get("fx_notional", 0.0) * DT
@@ -78,12 +91,17 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
 
 
 def bridge_components(pm_net_daily: pd.DataFrame, pm_ids: list[str] | None = None) -> dict:
-    """Three-tier Gross → Net → Eligible bridge (deductions are negative).
+    """Trading/Non-trading → Gross → Net → Eligible bridge (deductions are negative).
 
-    Returns ordered dict: Gross / trading costs / Net / overhead / Eligible.
+    Returns ordered dict: Trading / Non-trading / Gross / trading costs / Net /
+    overhead / Eligible. ``Non-trading PnL`` is an additive step into Gross.
     """
     df = pm_net_daily if pm_ids is None else pm_net_daily[pm_net_daily["pm_id"].isin(pm_ids)]
+    trading = float(df["trading_pnl"].sum()) if "trading_pnl" in df.columns else float(df["gross_pnl"].sum())
+    non_trading = float(df["non_trading_pnl"].sum()) if "non_trading_pnl" in df.columns else 0.0
     return {
+        "Trading PnL":     trading,
+        "Non-trading PnL": non_trading,
         "Gross PnL":      float(df["gross_pnl"].sum()),
         "Financing":      -float(df["financing"].sum()),
         "Borrow":         -float(df["borrow"].sum()),

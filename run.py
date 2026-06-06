@@ -36,6 +36,8 @@ def main() -> int:
     _section("2/4  COMPUTE engine outputs")
     results = compute_all()
     print(f"  AUM           : {results['aum']:>16,.0f}")
+    print(f"  Fund Trading  : {results['fund_trading']:>16,.0f}")
+    print(f"  Fund Non-trad : {results['fund_non_trading']:>16,.0f}")
     print(f"  Fund Gross    : {results['fund_gross']:>16,.0f}")
     print(f"  Fund Net      : {results['fund_net']:>16,.0f}")
     print(f"  Total Comp    : {results['total_comp']:>16,.0f}")

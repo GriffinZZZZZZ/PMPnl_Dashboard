@@ -38,7 +38,8 @@ except Exception:  # streamlit not installed
     _cache = _passthrough
 
 
-_DB_TABLES = ["strategy_pods", "portfolio_managers", "security_master", "eod_prices", "eod_positions"]
+_DB_TABLES = ["strategy_pods", "portfolio_managers", "security_master", "eod_prices",
+              "eod_positions", "eod_income"]
 
 
 @_cache(show_spinner=False)
@@ -76,26 +77,43 @@ def compute_all(
     # Apply date filter before engine runs (affects PnL, costs, and comp calculations).
     prices_f    = raw["eod_prices"].copy()
     positions_f = raw["eod_positions"].copy()
+    income_f    = raw["eod_income"].copy()
     if date_from:
         dt_from = pd.Timestamp(date_from)
         prices_f    = prices_f[prices_f["date"] >= dt_from]
         positions_f = positions_f[positions_f["date"] >= dt_from]
+        income_f    = income_f[income_f["date"] >= dt_from]
     if date_to:
         dt_to = pd.Timestamp(date_to)
         prices_f    = prices_f[prices_f["date"] <= dt_to]
         positions_f = positions_f[positions_f["date"] <= dt_to]
+        income_f    = income_f[income_f["date"] <= dt_to]
 
     position_frame = pnl.build_position_frame(prices_f, positions_f, instruments)
     pm_daily = pnl.pm_daily_gross(position_frame)
+
+    # Merge non-trading income (other non-recurring income) onto the PM-daily frame.
+    income_daily = (
+        income_f.groupby(["date", "pm_id"], as_index=False)["amount"].sum()
+        .rename(columns={"amount": "non_trading_pnl"})
+    )
+    pm_daily = pm_daily.merge(income_daily, on=["date", "pm_id"], how="left")
+    pm_daily["non_trading_pnl"] = pm_daily["non_trading_pnl"].fillna(0.0)
+
     pm_net_daily = costs.add_costs(pm_daily, cfg, pms)
 
     payoff_daily = payoff.compute_payoff(pm_net_daily, pms, cfg, payout_ratio_override)
     total_comp = float(payoff.total_comp_by_pm(payoff_daily)["total_comp"].sum())
 
-    fund_gross    = float(pm_net_daily["gross_pnl"].sum())
-    fund_net      = float(pm_net_daily["net_pnl"].sum())
-    fund_eligible = float(pm_net_daily["eligible_pnl"].sum())
-    econ = economics.investor_economics(fund_eligible, total_comp, cfg)
+    fund_trading          = float(pm_net_daily["trading_pnl"].sum())
+    fund_non_trading      = float(pm_net_daily["non_trading_pnl"].sum())
+    fund_gross            = float(pm_net_daily["gross_pnl"].sum())
+    fund_net              = float(pm_net_daily["net_pnl"].sum())
+    fund_eligible         = float(pm_net_daily["eligible_pnl"].sum())
+    fund_capital_charges  = float(pm_net_daily["capital_charge"].sum())
+    income_total          = float(income_f["amount"].sum())
+    position_trading      = float(position_frame["gross_pnl"].sum())
+    econ = economics.investor_economics(fund_eligible, total_comp, cfg, capital_charges=fund_capital_charges)
 
     return {
         "cfg": cfg,
@@ -107,14 +125,20 @@ def compute_all(
         "payoff_daily": payoff_daily,
         "total_comp_by_pm": payoff.total_comp_by_pm(payoff_daily),
         "effective_payout_rates": payoff.effective_payout_rates(payoff_daily),
-        "fund_gross":        fund_gross,
-        "fund_net":          fund_net,
-        "fund_eligible_pnl": fund_eligible,
-        "total_comp":        total_comp,
-        "center_cost": econ["center_cost"],
-        "investor_net": econ["investor_net"],
-        "comp_expense_ratio": econ["comp_expense_ratio"],
-        "aum": econ["aum"],
+        "fund_trading":         fund_trading,
+        "fund_non_trading":     fund_non_trading,
+        "fund_gross":           fund_gross,
+        "fund_net":             fund_net,
+        "fund_eligible_pnl":    fund_eligible,
+        "fund_capital_charges": fund_capital_charges,
+        "income_total":         income_total,
+        "position_trading":     position_trading,
+        "eod_income":           income_f,
+        "total_comp":           total_comp,
+        "center_cost":          econ["center_cost"],
+        "investor_net":         econ["investor_net"],
+        "comp_expense_ratio":   econ["comp_expense_ratio"],
+        "aum":                  econ["aum"],
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
         "prices": prices_f,

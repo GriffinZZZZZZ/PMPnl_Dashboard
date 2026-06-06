@@ -22,6 +22,20 @@ costs:
   commission_bps:  1.5      # bps on traded notional (|delta qty| * price)
   fx_rate:         0.010    # annual FX conversion cost, charged on FX-asset-class gross notional
 
+# -----------------------------------------------------------------------------
+# Non-trading PnL = "other non-recurring income": one-off items that are NOT
+# mark-to-market trading PnL (tax reclaims, fee rebates, legal settlements,
+# corporate actions, interest true-ups). Generated as sparse per-PM events and
+# stored in the eod_income table. These flow into Gross PnL, so they reach the
+# PM comp base (Eligible PnL) like any other book PnL.
+# -----------------------------------------------------------------------------
+non_trading_income:
+  annual_events_per_pm: 6     # expected number of one-off items per PM per year
+  amount_mean:    150000      # USD: lognormal median size of an event
+  amount_sigma:   0.8         # lognormal shape (spread of event sizes)
+  negative_prob:  0.15        # share of items that are charges (negative), not income
+  categories: ["Tax Reclaim", "Fee Rebate", "Legal Settlement", "Corporate Action", "Interest True-up"]
+
 # Center cost = fund overhead (ops, tech, compliance, rent). Annual figure
 # expressed as bps on AUM; accrued daily (* dt) at the fund level and deducted
 # ONCE when computing Investor Net (never inside PM Net).

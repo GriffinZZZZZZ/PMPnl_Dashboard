@@ -32,7 +32,7 @@ def build_position_frame(
         A frame indexed by row with columns::
 
             date, pm_id, ticker, quantity, prev_quantity, close_price, prev_price,
-            gross_pnl, gross_exposure, short_notional, traded_notional
+            gross_pnl, gross_exposure, long_notional, short_notional, traded_notional
 
         The first date per (pm_id, ticker) has zero PnL/costs because there is
         no prior day to mark against. ``fx_notional`` is non-zero only for tickers
@@ -53,6 +53,7 @@ def build_position_frame(
 
     df["gross_pnl"]       = df["prev_quantity"] * (df["close_price"] - df["prev_price"])
     df["gross_exposure"]  = (df["prev_quantity"] * df["prev_price"]).abs()
+    df["long_notional"]   = df["prev_quantity"].clip(lower=0) * df["prev_price"]
     df["short_notional"]  = (-df["prev_quantity"]).clip(lower=0) * df["prev_price"]
     df["traded_notional"] = (df["quantity"] - df["prev_quantity"]).abs() * df["close_price"]
     # FX notional: gross_exposure only for FX asset class, 0 otherwise.
@@ -64,18 +65,24 @@ def build_position_frame(
 
 
 def pm_daily_gross(position_frame: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate the position frame to daily gross PnL & exposures per PM.
+    """Aggregate the position frame to daily trading PnL & exposures per PM.
 
-    Returns columns ``[date, pm_id, gross_pnl, gross_exposure, short_notional,
-    traded_notional]``.
+    The per-position MTM ``gross_pnl`` rolls up to ``trading_pnl`` here — at the PM
+    level "gross PnL" also includes non-trading income (added downstream in the cost
+    engine), so the rolled-up market PnL is named ``trading_pnl`` to keep the split clear.
+
+    Returns columns ``[date, pm_id, trading_pnl, gross_exposure, long_notional,
+    short_notional, traded_notional, fx_notional]``.
     """
     agg = (
         position_frame.groupby(["date", "pm_id"], as_index=False)[
-            ["gross_pnl", "gross_exposure", "short_notional", "traded_notional", "fx_notional"]
+            ["gross_pnl", "gross_exposure", "long_notional", "short_notional",
+             "traded_notional", "fx_notional"]
         ]
         .sum()
         .sort_values(["pm_id", "date"])
         .reset_index(drop=True)
+        .rename(columns={"gross_pnl": "trading_pnl"})
     )
     return agg
 

@@ -9,6 +9,7 @@ Produces deterministic (fixed-seed) but realistic data written to
 * ``instruments`` — one row per tradable instrument (beta, alpha, idio vol).
 * ``prices``      — long format daily prices via a factor model.
 * ``positions``   — long format daily quantities (date, pm_id, ticker, qty).
+* ``income``      — sparse non-trading income events (other non-recurring income).
 * ``trades``      — OMS-style transaction log derived from position changes.
 
 Design rules:
@@ -174,6 +175,52 @@ def generate_positions(
     return pd.concat(frames, ignore_index=True)
 
 
+def generate_income(
+    cfg: dict,
+    pms: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Generate sparse per-PM non-trading income events (other non-recurring income).
+
+    These are one-off items — tax reclaims, fee rebates, legal settlements, corporate
+    actions, interest true-ups — that are NOT mark-to-market trading PnL. Each PM gets
+    ``~annual_events_per_pm`` events (Poisson) on random business days; amounts are
+    lognormal around ``amount_mean`` and flipped negative with ``negative_prob``.
+
+    Returns a long frame ``[date, pm_id, category, amount]`` (most days have no row).
+    """
+    inc = cfg.get("non_trading_income")
+    if not inc:
+        return pd.DataFrame(columns=["date", "pm_id", "category", "amount"])
+
+    period_fraction = len(dates) / TRADING_DAYS
+    lam = inc["annual_events_per_pm"] * period_fraction
+    mu = float(np.log(inc["amount_mean"]))
+    sigma = float(inc["amount_sigma"])
+    neg_p = float(inc["negative_prob"])
+    categories = list(inc["categories"])
+
+    rows = []
+    for pm_id in pms["pm_id"]:
+        n_events = int(rng.poisson(lam))
+        if n_events == 0:
+            continue
+        n_events = min(n_events, len(dates))
+        event_days = rng.choice(len(dates), size=n_events, replace=False)
+        for di in event_days:
+            magnitude = float(np.exp(rng.normal(mu, sigma)))
+            sign = -1.0 if rng.random() < neg_p else 1.0
+            rows.append({
+                "date":     dates[int(di)],
+                "pm_id":    pm_id,
+                "category": str(rng.choice(categories)),
+                "amount":   round(sign * magnitude, 2),
+            })
+    cols = ["date", "pm_id", "category", "amount"]
+    return pd.DataFrame(rows, columns=cols).sort_values(["pm_id", "date"]).reset_index(drop=True)
+
+
 def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     """Generate every table and write parquet files to ``data/``.
 
@@ -188,6 +235,7 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     instruments = generate_instruments(cfg, rng)
     prices = generate_prices(cfg, instruments, dates, rng)
     positions = generate_positions(cfg, pms, instruments, prices, dates, rng)
+    income = generate_income(cfg, pms, dates, rng)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -210,6 +258,7 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
         "security_master":    instruments_db,
         "eod_prices":         prices_db,
         "eod_positions":      positions_db,
+        "eod_income":         income,
     }
     write_database(tables, cfg)
     return tables
