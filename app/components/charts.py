@@ -437,9 +437,9 @@ def show_sweep(
     # Slider line: solid accent = selected ratio (only when different from baseline).
     if selected_x is not None and abs(selected_x - current_x) > 1e-6:
         sel_df = pd.DataFrame({x: [selected_x], "value": [ymin]})
-        sel_rule = alt.Chart(sel_df).mark_rule(color=p["good"], size=2.5).encode(x=f"{x}:Q")
+        sel_rule = alt.Chart(sel_df).mark_rule(color=p["accent2"], size=2.5).encode(x=f"{x}:Q")
         sel_label = alt.Chart(sel_df).mark_text(
-            text=f"selected {selected_x:.0%}", color=p["good"], align="left", dx=6, baseline="bottom",
+            text=f"selected {selected_x:.0%}", color=p["accent2"], align="left", dx=6, baseline="bottom",
             fontWeight=600, font=SANS,
         ).encode(x=f"{x}:Q", y="value:Q")
         layers.extend([sel_rule, sel_label])

@@ -155,6 +155,6 @@ charts.show_sweep(
 )
 st.caption(
     f"Dashed amber = current capital-weighted base ratio ({current:.0%}). "
-    f"Solid green = slider selection ({ratio:.0%}). "
+    f"Solid blue = slider selection ({ratio:.0%}). "
     f"Comp rises and investor net falls as the ratio increases."
 )
