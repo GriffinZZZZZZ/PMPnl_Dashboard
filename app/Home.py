@@ -1,8 +1,4 @@
-"""Fund Overview — the CEO/investor landing page.
-
-Narrative: how finance turns PM profit into the fund's true cost and the
-investor's true return, with a live controls panel proving it reconciles.
-"""
+"""Fund Overview — the CEO/investor landing page."""
 from __future__ import annotations
 
 import sys
@@ -11,11 +7,11 @@ from pathlib import Path
 # Make the repo root importable when launched via `streamlit run app/Home.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pandas as pd
 import streamlit as st
 
+from app.components import charts
 from app.components.controls import render_controls
-from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row
+from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row, style_negative
 from app.components.theme import page_header, section, setup_page
 from src.engine import recon
 from src.loader import compute_all, fund_equity_curve
@@ -24,10 +20,7 @@ setup_page("Fund Overview", "🏦")
 results = compute_all()
 pms, pods = results["pms"], results["pods"]
 
-page_header(
-    "Fund Overview",
-    "How finance turns PM trading profit into the fund's true cost and the investor's true return.",
-)
+page_header("Fund Overview")
 
 # ---- KPI row ----------------------------------------------------------------
 gross, net = results["fund_gross"], results["fund_net"]
@@ -46,48 +39,45 @@ kpi_row(cards)
 # ---- Fund equity curve ------------------------------------------------------
 section("Fund Equity Curve — Gross vs Net")
 curve = fund_equity_curve(results["pm_net_daily"])
-st.line_chart(curve, height=320, color=["#5B8DEF", "#36CFC9"])
-st.caption(
-    "The gap between Gross and Net is the Gross→Net bridge: financing, borrow, and commission costs."
-)
+st.altair_chart(charts.line(curve, height=330, y_title="Cumulative PnL (USD)"), width="stretch")
+st.caption("The gap between Gross and Net is the cost bridge: financing, borrow, and commission. Drag to zoom.")
 
-# ---- Pod / PM ranking -------------------------------------------------------
+# ---- Pod / PM leaderboard ---------------------------------------------------
 section("Pod & PM Leaderboard")
-payoff = results["payoff_daily"]
+group_by = st.radio("Group by", ["Strategy Pod", "Team"], horizontal=True, label_visibility="collapsed")
+group_col, group_src = ("Pod", "pod_id") if group_by == "Strategy Pod" else ("Team", "team_id")
+group_name = (pods.set_index("pod_id")["name"] if group_src == "pod_id"
+              else {t["team_id"]: t["name"] for t in results["cfg"]["teams"]})
+
 comp_by_pm = results["total_comp_by_pm"].set_index("pm_id")["total_comp"]
 net_by_pm = results["pm_net_daily"].groupby("pm_id")["net_pnl"].sum()
+# Cumulative-net trend over the last ~3 months (63 trading days).
+spark = (results["payoff_daily"].sort_values("date").groupby("pm_id")["cum_net"]
+         .apply(lambda s: list(s)[-63:]))
 
-# Cumulative-net sparkline values per PM (ordered by date).
-spark = (
-    payoff.sort_values("date").groupby("pm_id")["cum_net"].apply(list)
-)
-pod_name = pods.set_index("pod_id")["name"]
 rank = pms.set_index("pm_id").copy()
-rank["Pod"] = rank["pod_id"].map(pod_name)
-rank["Net PnL"] = net_by_pm
-rank["Comp"] = comp_by_pm
-rank["Comp / Net"] = (rank["Comp"] / rank["Net PnL"]).clip(lower=0, upper=1).fillna(0)
-rank["Trend"] = spark
-rank = rank.reset_index().sort_values("Net PnL", ascending=False)
+rank[group_col] = rank[group_src].map(group_name)
+rank["Net PnL ($M)"] = (net_by_pm / 1e6)
+rank["Comp ($M)"] = (comp_by_pm / 1e6)
+rank["Comp / Net"] = (comp_by_pm / net_by_pm).clip(lower=0, upper=1).fillna(0) * 100
+rank["Trend (3mo)"] = spark
+rank = rank.reset_index().sort_values("Net PnL ($M)", ascending=False)
 rank.insert(0, "PM", rank["name"])
+show = rank[["PM", group_col, "Net PnL ($M)", "Comp ($M)", "Comp / Net", "Trend (3mo)"]]
 
 st.dataframe(
-    rank[["PM", "Pod", "Net PnL", "Comp", "Comp / Net", "Trend"]],
+    style_negative(show, subset=["Net PnL ($M)"]),
     hide_index=True,
     width="stretch",
     column_config={
-        "Net PnL": st.column_config.NumberColumn(format="$%.0f"),
-        "Comp": st.column_config.NumberColumn(format="$%.0f"),
-        "Comp / Net": st.column_config.ProgressColumn(
-            "Comp / Net", min_value=0.0, max_value=1.0, format="%.0f%%"
-        ),
-        "Trend": st.column_config.LineChartColumn("Cumulative Net", y_min=None, y_max=None),
+        "Net PnL ($M)": st.column_config.NumberColumn(format="$%.1fM"),
+        "Comp ($M)": st.column_config.NumberColumn(format="$%.1fM"),
+        "Comp / Net": st.column_config.ProgressColumn(min_value=0.0, max_value=100.0, format="%.0f%%"),
+        "Trend (3mo)": st.column_config.LineChartColumn("Trend (3mo)", width="medium"),
     },
 )
+st.caption("Net PnL and comp in $M. Trend = cumulative net over the last ~3 months. Losses shown in red.")
 
 # ---- Controls & Reconciliation ---------------------------------------------
 section("Controls & Reconciliation")
-st.caption(
-    "Independent finance tie-outs. All-green means every number on every page reconciles end-to-end."
-)
 render_controls(recon.run_checks(results, results["cfg"]))

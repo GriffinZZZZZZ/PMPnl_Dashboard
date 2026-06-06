@@ -1,11 +1,12 @@
-# Dark "financial terminal" theme. Custom CSS in app/components/theme.py builds on
-# these tokens for KPI cards, status chips, and typography. Charts remain native.
+# Base theme aligned to the default "Midnight" palette. The runtime theme selector
+# in app/components/theme.py injects palette-driven CSS that can override these (so
+# users can switch between several dark palettes and a light one at runtime).
 [theme]
 base = "dark"
-primaryColor = "#36CFC9"
-backgroundColor = "#0E1117"
-secondaryBackgroundColor = "#171B26"
-textColor = "#E6E9EF"
+primaryColor = "#4FD1C5"
+backgroundColor = "#0F141C"
+secondaryBackgroundColor = "#161D29"
+textColor = "#E7ECF5"
 font = "sans serif"
 
 [server]

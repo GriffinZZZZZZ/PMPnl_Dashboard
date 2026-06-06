@@ -23,11 +23,28 @@ def fmt_money(x: float, unit: str = "auto") -> str:
     return f"{sign}${a:,.0f}"
 
 
+def fmt_millions(x: float) -> str:
+    """Format a dollar amount in millions with one decimal ($72.6M, -$4.1M)."""
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "—"
+    sign = "-" if x < 0 else ""
+    return f"{sign}${abs(x)/1e6:,.1f}M"
+
+
 def fmt_pct(x: float) -> str:
     """Format a fraction as a percentage, or em-dash if undefined."""
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return "—"
     return f"{x*100:.1f}%"
+
+
+def style_negative(df, subset, color: str = "#F2645A"):
+    """Return a pandas Styler that colors negative values in ``subset`` red.
+
+    Used to highlight loss-making PMs/pods/positions in tables.
+    """
+    return df.style.map(lambda v: f"color: {color}" if isinstance(v, (int, float)) and v < 0 else "",
+                        subset=subset)
 
 
 def kpi_card(label: str, value: str, delta: str | None = None,

@@ -21,11 +21,14 @@ netting risk, and reporting what investors actually net.
 ## What you get
 
 - **4-page dashboard** (Fund Overview, Pod & PM drill-down, Attribution, PM Comp as Cost)
-- **Tested calculation engine** — 19 pytest cases vs hand-computed values
-- **Live Controls & Reconciliation panel** — Fund = ΣPod = ΣPM, comp ties out, investor-net identity holds
+- **Tested calculation engine** — 21 pytest cases vs hand-computed values
+- **Live Controls & Reconciliation panel** — Fund = ΣPod = ΣPM = ΣTeam, comp ties out, investor-net identity holds
 - **Config-driven** — change one value in `config/assumptions.yaml`, everything recomputes
-- **Decision tool** — a `payout_ratio` slider recomputes comp & investor net live
-- **Native Streamlit charts only** (no Plotly/Altair/matplotlib)
+- **Structural comp** — contractual base payout + tiered marginal ladder + prior-year loss carryforward
+- **Two pod taxonomies** — group by strategy pod or by cross-strategy team (a toggle on each page)
+- **Decision tool** — a payout-ratio slider recomputes comp & investor net live, with the current ratio marked
+- **Polished Altair charts** — zoom, tooltips, angled labels, a Gross→Net waterfall (pure-Python, bundled with Streamlit; no Plotly/matplotlib)
+- **Switchable themes** — three dark palettes + one light, chosen from the sidebar
 
 ---
 
@@ -65,6 +68,10 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> **Windows note:** if `python` opens the Microsoft Store (a stub) instead of
+> running, use the `py` launcher: `py -m venv .venv` then
+> `.venv\Scripts\python.exe -m pip install -r requirements.txt`.
+
 ---
 
 ## Run the pipeline (recommended first step)
@@ -102,27 +109,32 @@ between the four pages.
 
 ### 🏦 Home — Fund Overview
 The CEO/LP landing page. KPI cards (AUM, Gross, Net, **PM Comp Expense**, Investor
-Net), the fund equity curve (Gross vs Net — the gap *is* the cost bridge), a Pod &
-PM leaderboard with inline sparklines and a comp/net progress bar, and the **Controls
-& Reconciliation** panel. **All-green = trustworthy.**
+Net), the fund equity curve (Gross vs Net — the gap *is* the cost bridge, drag to
+zoom), a Pod & PM leaderboard (toggle **Strategy Pod / Team**) with 3-month trend
+sparklines and a comp/net bar, and the **Controls & Reconciliation** panel.
+**All-green = trustworthy.** Pick a **theme** from the sidebar.
 
 ### 🔍 Pod & PM — Drill-down
-Pick a **Pod**, then a **PM** (or "All PMs in pod") from the two selectors. You get
-that selection's KPIs, equity curve, the **Gross → Net → Investor bridge** (costs and
-comp shown as negative deductions, with running subtotals), strategy/position
-attribution, and the **High-Water Mark vs cumulative net** with the accrued-comp
-liability.
+Pick a **Pod** (or **All pods**), then a **PM** (or "All PMs"). You get that
+selection's KPIs, equity curve, the **Gross → Net → Investor bridge** as a
+**waterfall** plus an income-statement table (deductions in red, bold subtotals),
+strategy/position attribution (top & bottom positions with **who holds them** and
+each position's return), and the **High-Water Mark vs cumulative net** with the
+accrued-comp liability and any prior-year loss to recover.
 
 ### 🧭 Attribution
-Where PnL, cost, and loss come from: Net PnL by pod, Gross PnL by strategy and asset
-class, top contributors/detractors, total cost by type, and a **risk-vs-return
-scatter** (each point a PM, colored by pod).
+Where PnL, cost, and loss come from. Toggle **PnL / Return** and **Strategy Pod /
+Team**: PnL (or return) by pod/team, by strategy, by asset class, top & bottom
+positions (with holders and returns), a richer **cost breakdown** (by pod / team /
+PM, with cost-to-gross ratios to show whether performance is revenue or cost
+control), and a **risk-vs-return scatter** (one color per PM, hover for the name).
 
 ### 💰 PM Comp as Cost  *(the finance centerpiece)*
-Comp expense by pod and PM, the comp/net expense ratio, the **accrued comp liability
-over time**, the **netting-risk** callout (comp paid on offset gains), and the
-**decision tool**: a `payout_ratio` slider that **recomputes comp and investor net
-live**, plus a sensitivity curve across payout ratios.
+Comp expense by pod and **by PM with each PM's contractual base payout ratio and
+realized effective rate**, the **accrued comp liability over time** (with its share
+of net PnL), the **netting-risk** callout, and the **decision tool**: a payout-ratio
+slider that **recomputes comp and investor net live**, plus a sensitivity curve with
+the **current ratio marked**.
 
 ---
 
@@ -145,9 +157,30 @@ No code edits required — that is the "system, not a one-off script" proof poin
 
 ## Screenshots
 
-Screenshots are not committed (they would go stale). To capture your own once the
-app is running, navigate each page and save images into `docs/images/`. Each page is
-described under [How to use each page](#how-to-use-each-page) above.
+### 🏦 Fund Overview
+KPI cards, the Gross-vs-Net fund equity curve, the Pod & PM leaderboard, and the live
+Controls & Reconciliation panel.
+
+![Fund Overview](docs/images/01_Home.png)
+
+### 🔍 Pod & PM Drill-down
+Per-selection KPIs, equity curve, and the Gross → Net → Investor bridge.
+
+![Pod and PM Drill-down](docs/images/02_Pod_and_PM.png)
+
+### 🧭 Attribution
+Net PnL by pod, Gross PnL by strategy and asset class, and top contributors/detractors.
+
+![Attribution](docs/images/03_Attribution.png)
+
+### 💰 PM Comp as Cost
+Comp expense by pod/PM, the comp/net ratio, netting-risk callout, accrued comp
+liability over time, and the `payout_ratio` sensitivity tool.
+
+![PM Comp as Cost](docs/images/04_PM_Comp_as_Cost.png)
+
+> To regenerate these after a UI change: run the app, then re-capture each page into
+> `docs/images/`.
 
 ---
 
@@ -157,9 +190,10 @@ described under [How to use each page](#how-to-use-each-page) above.
 pytest tests/ -q
 ```
 
-19 tests validate the engine against hand-computed values: MTM roll-up, the
+21 tests validate the engine against hand-computed values: MTM roll-up, the
 Gross→Net bridge, HWM crystallization (including an underwater PM earning **0**
-comp), netting cost, and every reconciliation tie-out.
+comp), the tiered comp ladder, prior-year loss carryforward, netting cost, and
+every reconciliation tie-out (R1–R6).
 
 ---
 

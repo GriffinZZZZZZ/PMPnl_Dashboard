@@ -120,5 +120,10 @@ def comp_liability_curve(payoff_daily: pd.DataFrame, pm_net_daily: pd.DataFrame)
         pm_net_daily.groupby("date")["net_pnl"].sum().sort_index().cumsum()
     )
     out = pd.DataFrame({"comp": comp, "cum_net": cum_net})
-    out["comp_pct_of_pnl"] = out["comp"] / out["cum_net"].where(out["cum_net"] > 0)
+    # The ratio is only meaningful once net PnL is material; before that a near-zero
+    # denominator makes it explode. Suppress it until cum_net exceeds 10% of its final.
+    final = float(out["cum_net"].iloc[-1]) if len(out) else 0.0
+    threshold = max(0.0, 0.10 * final)
+    denom = out["cum_net"].where(out["cum_net"] > threshold)
+    out["comp_pct_of_pnl"] = out["comp"] / denom
     return out[["comp", "comp_pct_of_pnl"]]

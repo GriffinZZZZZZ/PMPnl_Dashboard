@@ -106,26 +106,40 @@ pm_net_{pm,t}     = pm_gross_{pm,t} - financing - borrow - commission
 
 ## 5. Compensation — high-water-mark crystallization  (`src/engine/payoff.py`)
 
-Per PM, on cumulative net PnL, with a running high-water mark and **no clawback**:
+Per PM, on cumulative net PnL, with a running high-water mark and **no clawback**.
+Two structural features sit on top of the base rate:
+
+- **Loss carryforward.** A negative `prior_year_pnl` becomes
+  `loss_carryforward = max(0, −prior_year_pnl)` that must be earned back this year
+  before any comp accrues (it raises the threshold).
+- **Tiered (structural) payout.** The contractual `payout_ratio` is the *base*
+  rate; a `comp_tiers` ladder adds marginal percentage points on higher bands of
+  eligible profit (e.g. +3pp on $1M–$2M, +6pp above $2M).
 
 ```
 cum_net_{pm,t}      = Σ_{s≤t} pm_net_{pm,s}
 peak_{pm,t}         = max(initial_HWM, max_{s≤t} cum_net)          # ratcheting HWM
 hurdle_amt_{pm,t}   = hurdle_rate * allocated_capital * (t * dt)   # time-scaled, small/0
-accrued_comp_{pm,t} = payout_ratio * max(0, peak - initial_HWM - hurdle_amt)
+profit_above_{pm,t} = max(0, peak - initial_HWM - hurdle_amt - loss_carryforward)
+accrued_comp_{pm,t} = tiered(profit_above; base = payout_ratio, comp_tiers)
+                    = Σ_tiers (base + add_pp) * (profit_above slice in that tier)
 daily_comp_{pm,t}   = accrued_comp_t - accrued_comp_{t-1}   ( ≥ 0 )
 total_comp          = Σ_pm accrued_comp_{pm,T}
+effective_rate_pm   = total_comp_pm / profit_above_pm        # base ≤ effective ≤ base+top add_pp
 ```
 
 `accrued_comp` is wrapped in a running max so it is **monotonically
 non-decreasing** ("crystallized") — once comp is earned at a peak it does not
-reverse, even if a later, growing hurdle would dip the raw value. This models
-comp as a **GAAP liability that grows daily with PnL**, not a year-end surprise.
+reverse. This models comp as a **GAAP liability that grows daily with PnL**, not
+a year-end surprise.
 
 **Worked examples** (`tests/test_payoff.py`):
-- Net `[50, 50, −30]`, payout 0.2, no hurdle → cum `[50,100,70]`, peak `[50,100,100]`,
-  accrued `[10, 20, 20]` — note day 3 stays at 20 (no clawback).
-- An always-underwater PM (cum never exceeds the initial HWM) earns **0** comp.
+- Net `[50, 50, −30]`, base 0.2, no hurdle/tiers → cum `[50,100,70]`, peak `[50,100,100]`,
+  accrued `[10, 20, 20]` — day 3 stays at 20 (no clawback).
+- Profit above HWM of $3M with base 0.2 and the ladder above → comp
+  `0.20×1M + 0.23×1M + 0.26×1M = 690,000` (effective rate 23%).
+- A PM carrying a −$500k prior-year loss earns **0** until cumulative net recovers
+  past $500k. An always-underwater PM earns **0** comp.
 
 ---
 
@@ -171,6 +185,13 @@ Controls panel):
 | R3 | `total_comp == Σ PM accrued_comp_T` |
 | R4 | `investor_net == fund_net − total_comp − center_cost_total` |
 | R5 | each `pod_net == Σ of its PMs' net` |
+| R6 | `fund_net == Σ Team net` (the second, team taxonomy also ties out) |
 
 All-green means every figure on every page reconciles end-to-end and is safe to
 show the CEO.
+
+> **Two pod taxonomies.** PMs roll up two independent ways: by **strategy pod**
+> (ECM, Quant, Macro, …) and by **team** (cross-strategy desks). Both partitions
+> cover every PM exactly once, so the fund total ties out under either (R2/R5 for
+> pods, R6 for teams). Pages with a *Strategy / Team* toggle use the same engine
+> roll-up (`attribution.pnl_by_group`) keyed on `pod_id` or `team_id`.

@@ -24,6 +24,12 @@ def render_controls(checks: list[Check]) -> None:
         else "✗ RECONCILIATION BREAK — investigate before trusting these numbers"
     )
     st.markdown(f'<div class="banner {banner_cls}">{banner_txt}</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="explain">These are independent finance tie-outs: each row checks that one '
+        'number equals the sum of its parts (e.g. the fund total equals every PM added up). '
+        'All-green means the books add up and the figures on every page can be trusted.</div>',
+        unsafe_allow_html=True,
+    )
 
     rows = []
     for c in checks:
