@@ -319,10 +319,13 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
     cost_colors = _cost_palette[:len(cost_cols)]
     long = df[[cat] + cost_cols].melt(id_vars=cat, var_name="Cost Type", value_name="Cost")
     domain = cost_cols
+    # -30° angle: sin(30°)=0.5 vs sin(45°)=0.71 — labels extend ~30% less below the axis,
+    # reliably avoiding clipping within the Streamlit chart component.
+    _xaxis = alt.Axis(labelAngle=-30, title=None, labelLimit=0, labelOverlap=False)
     stacked = (
         alt.Chart(long).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
         .encode(
-            x=alt.X(f"{cat}:N", axis=alt.Axis(labelAngle=-45, title=None, labelOverlap=False, labelLimit=0)),
+            x=alt.X(f"{cat}:N", axis=_xaxis),
             y=alt.Y("Cost:Q", stack="zero", title="Total Cost (USD)", axis=alt.Axis(titleAnchor="middle")),
             color=alt.Color("Cost Type:N",
                             scale=alt.Scale(domain=domain, range=cost_colors),
@@ -335,15 +338,14 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
     points = (
         alt.Chart(df[df[ratio_col].notna()]).mark_point(size=80, filled=True, color=p["accent"], opacity=0.9)
         .encode(
-            x=alt.X(f"{cat}:N", axis=alt.Axis(labelAngle=-45, title=None, labelOverlap=False, labelLimit=0)),
+            x=alt.X(f"{cat}:N", axis=_xaxis),
             y=alt.Y(f"{ratio_col}:Q", title=ratio_title,
                     axis=alt.Axis(format=".1%", titleColor=p["accent"], titleAnchor="middle")),
             tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{ratio_col}:Q", format=".1%", title=ratio_title)],
         )
     )
-    # padding bottom gives room for -45° labels that extend below the data area.
     ch = (alt.layer(stacked, points).resolve_scale(y="independent")
-          .properties(height=height, title=title or "", padding={"bottom": 70}))
+          .properties(height=height, title=title or ""))
     return _cfg(ch, p)
 
 
@@ -474,13 +476,13 @@ def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None
         alt.Chart(df).mark_bar(size=30, cornerRadius=2)
         .encode(
             x=alt.X("label:N", sort=order,
-                    axis=alt.Axis(labelAngle=-45, title=None, labelLimit=0, labelOverlap=False)),
+                    axis=alt.Axis(labelAngle=-30, title=None, labelLimit=0, labelOverlap=False)),
             y=alt.Y("lo:Q", title="USD", axis=alt.Axis(format=fmt, titleAnchor="middle")),
             y2="hi:Q",
             color=alt.Color("dir:N", scale=scale, legend=None),
             tooltip=[alt.Tooltip("label:N", title="Component"),
                      alt.Tooltip("amount:Q", format=",.0f", title="Amount")],
         )
-        .properties(height=height, title=title or "", padding={"bottom": 80})
+        .properties(height=height, title=title or "")
     )
     return _cfg(ch, p, legend_bottom=False)
