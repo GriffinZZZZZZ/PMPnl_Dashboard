@@ -1,13 +1,13 @@
 """Investor net economics — the fund-level waterfall LPs actually keep.
 
-Center cost is a **fund-level overhead** accrued daily (* dt) and deducted once
-here (never inside PM Net), so the reconciliation identities stay exact::
+Center cost is now a **pass-through** allocated to each PM daily and included in
+``pm_net``. So the investor waterfall simplifies to::
 
-    fund_net_pnl       = sum_pm pm_net
-    center_cost_annual = center_cost_bps/1e4 * AUM
-    center_cost_total  = center_cost_annual * (n_business_days * dt)   (accrued over time)
-    investor_net       = fund_net_pnl - total_comp - center_cost_total
+    fund_net_pnl       = sum_pm pm_net          (center already deducted)
+    investor_net       = fund_net_pnl - total_comp
     comp_expense_ratio = total_comp / fund_net_pnl
+
+The center total is still tracked for reporting and reconciliation (R7).
 """
 from __future__ import annotations
 
@@ -39,25 +39,29 @@ def center_cost_total(cfg: dict) -> float:
 
 
 def allocate_center_cost(cfg: dict, pms: pd.DataFrame) -> pd.DataFrame:
-    """Allocate total center cost to PMs pro-rata by capital (FOR DISPLAY ONLY)."""
+    """Per-PM center cost allocation by AUM share (pass-through, not display-only)."""
     total = center_cost_total(cfg)
     cap = pms["allocated_capital"]
-    out = pms[["pm_id"]].copy()
+    out = pms[["pm_id", "allocated_capital"]].copy()
     out["center_cost_alloc"] = total * cap / cap.sum()
     return out
 
 
 def investor_economics(fund_net: float, total_comp: float, cfg: dict) -> dict:
-    """Bundle the fund-to-investor waterfall into one dict for the UI/recon."""
-    cc = center_cost_total(cfg)
-    investor_net = fund_net - total_comp - cc
-    # Comp expense ratio is only meaningful when the fund made money.
+    """Fund-to-investor waterfall.
+
+    Center is already inside ``fund_net`` (pass-through); investor receives
+    ``fund_net - total_comp``.
+    """
+    investor_net = fund_net - total_comp
     comp_ratio = total_comp / fund_net if fund_net > _EPS else float("nan")
+    # Keep center_cost for reporting / R7 reconciliation.
+    cc = center_cost_total(cfg)
     return {
         "aum": aum(cfg),
         "fund_net": fund_net,
         "total_comp": total_comp,
-        "center_cost": cc,
+        "center_cost": cc,         # for display / R7 only
         "investor_net": investor_net,
         "comp_expense_ratio": comp_ratio,
     }

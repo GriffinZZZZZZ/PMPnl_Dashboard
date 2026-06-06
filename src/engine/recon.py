@@ -5,11 +5,12 @@ asserted in ``run.py`` and the pytest suite, and rendered live as green/red in
 the dashboard's Controls panel.
 
     R1  Fund Gross == sum(Pod Gross) == sum(PM Gross)
-    R2  Fund Net   == sum(Pod Net)   == sum(PM Net)
+    R2  Fund Net   == sum(Pod Net)   == sum(PM Net)   (center is inside fund_net as pass-through)
     R3  Total Comp == sum(PM accrued_comp_T)
-    R4  Investor Net == Fund Net - Total Comp - Center Cost (accrued)
+    R4  Investor Net == Fund Net - Total Comp          (center already deducted in Net)
     R5  Each Pod Net == sum of its PMs' Net
     R6  Fund Net == sum(Team Net)    (the second, team taxonomy also ties out)
+    R7  sum(PM center_alloc) == center_cost_total      (pass-through balance check)
 
 Check names are written in plain language so a non-technical reader can see what
 each control proves.
@@ -21,7 +22,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from src.engine.attribution import pnl_by_group, pnl_by_pod
-from src.engine.economics import center_cost_total
+from src.engine.economics import allocate_center_cost, center_cost_total
 from src.engine.payoff import total_comp_by_pm
 
 TOL = 1e-6
@@ -80,9 +81,8 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     sum_pm_comp = float(total_comp_by_pm(results["payoff_daily"])["total_comp"].sum())
     checks.append(Check("Total comp = sum of each PM's accrued comp", total_comp, sum_pm_comp))
 
-    # R4 — Investor net identity (center cost accrued over the period).
-    cc = center_cost_total(cfg)
-    checks.append(Check("Investor net = Fund net - comp - center cost", fund_net - total_comp - cc, investor_net))
+    # R4 — Investor net identity (center is pass-through inside fund_net).
+    checks.append(Check("Investor net = Fund net - comp (center is pass-through)", fund_net - total_comp, investor_net))
 
     # R5 — Each pod net == sum of its PMs' net.
     pm_with_pod = pm_net_daily.merge(pms[["pm_id", "pod_id"]], on="pm_id", how="left")
@@ -97,6 +97,11 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     if "team_id" in pms.columns:
         team = pnl_by_group(pm_net_daily, pms, "team_id")
         checks.append(Check("Fund net PnL = sum of every team's net", fund_net, float(team["net_pnl"].sum())))
+
+    # R7 — Center pass-through balance (sum of PM allocations == total center cost).
+    cc_alloc = allocate_center_cost(cfg, pms)
+    sum_center_alloc = float(cc_alloc["center_cost_alloc"].sum())
+    checks.append(Check("Sum of PM center allocations = total center cost", center_cost_total(cfg), sum_center_alloc))
 
     return checks
 

@@ -66,9 +66,9 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
     raw = load_all()
     pods, pms, instruments = raw["pods"], raw["pms"], raw["instruments"]
 
-    position_frame = pnl.build_position_frame(raw["prices"], raw["positions"])
+    position_frame = pnl.build_position_frame(raw["prices"], raw["positions"], instruments)
     pm_daily = pnl.pm_daily_gross(position_frame)
-    pm_net_daily = costs.add_costs(pm_daily, cfg)
+    pm_net_daily = costs.add_costs(pm_daily, cfg, pms)
 
     payoff_daily = payoff.compute_payoff(pm_net_daily, pms, cfg, payout_ratio_override)
     total_comp = float(payoff.total_comp_by_pm(payoff_daily)["total_comp"].sum())
@@ -96,6 +96,7 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
         "aum": econ["aum"],
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
+        "prices": raw["prices"],
     }
 
 
@@ -109,21 +110,22 @@ def fund_equity_curve(pm_net_daily: pd.DataFrame) -> pd.DataFrame:
 
 
 def comp_liability_curve(payoff_daily: pd.DataFrame, pm_net_daily: pd.DataFrame) -> pd.DataFrame:
-    """Daily accrued comp liability and its share of cumulative net PnL.
+    """Daily accrued comp liability and its share of cumulative **gross** PnL.
 
-    Returns a date-indexed frame ``[comp, comp_pct_of_pnl]`` where ``comp`` is the
-    fund's accrued comp liability and ``comp_pct_of_pnl`` is that liability over the
-    fund's cumulative net PnL to date (NaN until net PnL turns positive).
+    Using cumulative gross as the denominator (instead of net) avoids the >100%
+    spike that occurs when losers drag net PnL close to zero while winners keep
+    accruing comp. Gross is always positive once the fund is profitable on gross.
     """
     comp = payoff_daily.groupby("date")["accrued_comp"].sum().sort_index()
-    cum_net = (
-        pm_net_daily.groupby("date")["net_pnl"].sum().sort_index().cumsum()
-    )
-    out = pd.DataFrame({"comp": comp, "cum_net": cum_net})
-    # The ratio is only meaningful once net PnL is material; before that a near-zero
-    # denominator makes it explode. Suppress it until cum_net exceeds 10% of its final.
-    final = float(out["cum_net"].iloc[-1]) if len(out) else 0.0
-    threshold = max(0.0, 0.10 * final)
-    denom = out["cum_net"].where(out["cum_net"] > threshold)
-    out["comp_pct_of_pnl"] = out["comp"] / denom
-    return out[["comp", "comp_pct_of_pnl"]]
+    cum_gross = pm_net_daily.groupby("date")["gross_pnl"].sum().sort_index().cumsum()
+    out = pd.DataFrame({"comp": comp, "cum_gross": cum_gross})
+    denom = out["cum_gross"].where(out["cum_gross"] > 0)
+    out["comp_pct_of_gross"] = out["comp"] / denom
+    return out[["comp", "comp_pct_of_gross"]]
+
+
+def fund_nav_curve(pm_net_daily: pd.DataFrame, aum_value: float) -> pd.DataFrame:
+    """Fund NAV = initial AUM + cumulative net PnL, indexed by date."""
+    daily = pm_net_daily.groupby("date")["net_pnl"].sum().sort_index()
+    cum_net = daily.cumsum()
+    return pd.DataFrame({"NAV": aum_value + cum_net})

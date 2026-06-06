@@ -14,12 +14,19 @@ from __future__ import annotations
 import pandas as pd
 
 
-def build_position_frame(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.DataFrame:
+def build_position_frame(
+    prices: pd.DataFrame,
+    positions: pd.DataFrame,
+    instruments: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """Join prices onto positions and derive the per-position daily quantities.
 
     Args:
         prices: long frame with columns ``[date, ticker, price]``.
         positions: long frame with columns ``[date, pm_id, ticker, qty]``.
+        instruments: optional roster with ``[ticker, asset_class]``; if given,
+            FX-asset-class positions get a non-zero ``fx_notional`` column used
+            by the FX cost engine.
 
     Returns:
         A frame indexed by row with columns::
@@ -28,9 +35,12 @@ def build_position_frame(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.Da
             gross_pnl, gross_exposure, short_notional, traded_notional
 
         The first date per (pm_id, ticker) has zero PnL/costs because there is
-        no prior day to mark against.
+        no prior day to mark against. ``fx_notional`` is non-zero only for tickers
+        whose ``asset_class == "FX"``; it equals ``gross_exposure`` for those rows.
     """
     df = positions.merge(prices, on=["date", "ticker"], how="left")
+    if instruments is not None:
+        df = df.merge(instruments[["ticker", "asset_class"]], on="ticker", how="left")
     df = df.sort_values(["pm_id", "ticker", "date"]).reset_index(drop=True)
 
     grp = df.groupby(["pm_id", "ticker"], sort=False)
@@ -45,6 +55,11 @@ def build_position_frame(prices: pd.DataFrame, positions: pd.DataFrame) -> pd.Da
     df["gross_exposure"] = (df["prev_qty"] * df["prev_price"]).abs()
     df["short_notional"] = (-df["prev_qty"]).clip(lower=0) * df["prev_price"]
     df["traded_notional"] = (df["qty"] - df["prev_qty"]).abs() * df["price"]
+    # FX notional: gross_exposure only for FX asset class, 0 otherwise.
+    if "asset_class" in df.columns:
+        df["fx_notional"] = df["gross_exposure"].where(df["asset_class"] == "FX", 0.0)
+    else:
+        df["fx_notional"] = 0.0
     return df
 
 
@@ -56,7 +71,7 @@ def pm_daily_gross(position_frame: pd.DataFrame) -> pd.DataFrame:
     """
     agg = (
         position_frame.groupby(["date", "pm_id"], as_index=False)[
-            ["gross_pnl", "gross_exposure", "short_notional", "traded_notional"]
+            ["gross_pnl", "gross_exposure", "short_notional", "traded_notional", "fx_notional"]
         ]
         .sum()
         .sort_values(["pm_id", "date"])

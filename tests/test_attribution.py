@@ -52,3 +52,27 @@ def test_cost_by_type():
     assert out["Financing"] == 3.0
     assert out["Borrow"] == 1.0
     assert round(out["Commission"], 6) == 0.2
+
+
+def test_risk_return_includes_sharpe(simple_cfg):
+    """risk_return now exposes sharpe = annual_return / annual_vol."""
+    import numpy as np
+    pms = pd.DataFrame(simple_cfg["pms"])
+    n = 252
+    dates = pd.date_range("2025-01-02", periods=n, freq="B")
+    # PM_A: daily net = +0.5 (constant -> vol=0 -> sharpe NaN handled)
+    # Use slight noise so vol > 0
+    rng = np.random.default_rng(42)
+    pm_a_net = 0.5 + rng.normal(0, 0.01, n)
+    pm_b_net = -0.1 + rng.normal(0, 0.01, n)
+    daily = pd.DataFrame({
+        "date": list(dates) * 2,
+        "pm_id": ["PM_A"] * n + ["PM_B"] * n,
+        "net_pnl": list(pm_a_net) + list(pm_b_net),
+    })
+    rr = attribution.risk_return(daily, pms)
+    assert "sharpe" in rr.columns
+    # PM_A has positive return -> positive sharpe
+    assert float(rr.loc[rr["pm_id"] == "PM_A", "sharpe"].iloc[0]) > 0
+    # PM_B has negative return -> negative sharpe
+    assert float(rr.loc[rr["pm_id"] == "PM_B", "sharpe"].iloc[0]) < 0

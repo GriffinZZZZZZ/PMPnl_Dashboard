@@ -20,6 +20,7 @@ costs:
   financing_rate:  0.030    # annual, charged on gross exposure (|long| + |short|)
   borrow_rate:     0.015    # annual, charged on short notional
   commission_bps:  1.5      # bps on traded notional (|delta qty| * price)
+  fx_rate:         0.010    # annual FX conversion cost, charged on FX-asset-class gross notional
 
 # Center cost = fund overhead (ops, tech, compliance, rent). Annual figure
 # expressed as bps on AUM; accrued daily (* dt) at the fund level and deducted
