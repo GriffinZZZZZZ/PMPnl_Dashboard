@@ -14,7 +14,7 @@ import streamlit as st
 # Palettes. Each is a dict of tokens; `scheme` is the categorical chart sequence.
 # -----------------------------------------------------------------------------
 PALETTES: dict[str, dict] = {
-    "Midnight": {
+    "Dark": {
         "mode": "dark",
         "bg": "#0F141C", "surface": "#161D29", "surface2": "#121925", "border": "#243044",
         "text": "#E7ECF5", "muted": "#8A94A8",
@@ -22,23 +22,7 @@ PALETTES: dict[str, dict] = {
         "good": "#3FB870", "bad": "#F2645A", "warn": "#E3B341",
         "scheme": ["#4FD1C5", "#6AA0FF", "#E3B341", "#C792EA", "#F78C6B", "#86E1A0", "#7FB3FF", "#E06C9F"],
     },
-    "Graphite": {
-        "mode": "dark",
-        "bg": "#15161A", "surface": "#1E2026", "surface2": "#191A1F", "border": "#2E323B",
-        "text": "#ECEAE3", "muted": "#969189",
-        "accent": "#D4A24E", "accent2": "#8FB39B",
-        "good": "#5FB37A", "bad": "#E06C5E", "warn": "#D9A441",
-        "scheme": ["#D4A24E", "#8FB39B", "#C77B57", "#6E93B5", "#B0884E", "#A7C4A0", "#D89A6A", "#7FA0A8"],
-    },
-    "Slate": {
-        "mode": "dark",
-        "bg": "#0F1419", "surface": "#171E26", "surface2": "#131922", "border": "#242E3A",
-        "text": "#E4E9F0", "muted": "#8794A4",
-        "accent": "#7C9CF6", "accent2": "#57C6C2",
-        "good": "#4CC38A", "bad": "#F26D6D", "warn": "#E6B450",
-        "scheme": ["#7C9CF6", "#57C6C2", "#E6B450", "#B98CE0", "#EF8E6A", "#7FD6A4", "#6FB0F0", "#E07FA8"],
-    },
-    "Daylight": {
+    "Light": {
         "mode": "light",
         "bg": "#F5F4EF", "surface": "#FFFFFF", "surface2": "#FBFAF6", "border": "#E3DFD5",
         "text": "#1C2430", "muted": "#6B7280",
@@ -47,7 +31,7 @@ PALETTES: dict[str, dict] = {
         "scheme": ["#0E8A7D", "#3A6FD8", "#B9791B", "#8A5BD6", "#C2603F", "#2E9E6B", "#4A86C5", "#B0508A"],
     },
 }
-DEFAULT_THEME = "Midnight"
+DEFAULT_THEME = "Dark"
 
 _FONTS = (
     "@import url('https://fonts.googleapis.com/css2?"

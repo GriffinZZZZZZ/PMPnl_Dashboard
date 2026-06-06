@@ -84,10 +84,10 @@ pods:
 # one team_id, so Fund Net = sum(Team Net) also ties out (recon R6).
 # -----------------------------------------------------------------------------
 teams:
-  - {team_id: TEAM_ALPHA, name: "Team Alpha"}
-  - {team_id: TEAM_BETA,  name: "Team Beta"}
-  - {team_id: TEAM_GAMMA, name: "Team Gamma"}
-  - {team_id: TEAM_DELTA, name: "Team Delta"}
+  - {team_id: TEAM_ALPHA, name: "Team 1"}
+  - {team_id: TEAM_BETA,  name: "Team 2"}
+  - {team_id: TEAM_GAMMA, name: "Team 3"}
+  - {team_id: TEAM_DELTA, name: "Team 4"}
 
 # -----------------------------------------------------------------------------
 # PMs. Each runs a sub-book with its OWN payout terms.

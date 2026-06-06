@@ -36,28 +36,51 @@ def _cfg(chart: alt.Chart, p: dict, *, legend_bottom: bool = True) -> alt.Chart:
     )
 
 
-def line(df: pd.DataFrame, *, x: str = "date", height: int = 320, zoom: bool = True,
+def _overview(data: pd.DataFrame, x: str, p: dict, *, y: str, color_field: str | None = None,
+              line_color: str | None = None, height: int = 44):
+    """Small lower strip carrying an x-interval brush; returns (brush, overview chart).
+
+    Drag a rectangle on this strip to zoom the detail chart above it (no scroll-wheel).
+    """
+    brush = alt.selection_interval(encodings=["x"])
+    enc = dict(
+        x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y", labelFontSize=9)),
+        y=alt.Y(f"{y}:Q", title=None, axis=None),
+    )
+    if color_field:
+        enc["color"] = alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]), legend=None)
+    ov = (alt.Chart(data).mark_line(opacity=0.55, color=line_color or p["accent2"])
+          .encode(**enc).add_params(brush).properties(height=height))
+    return brush, ov
+
+
+def line(df: pd.DataFrame, *, x: str = "date", height: int = 300, zoom: bool = True,
          title: str | None = None, y_title: str = "USD", date_fmt: str = "%b %Y") -> alt.Chart:
-    """Multi-series line chart (wide df). Zoom/pan enabled; legend at the bottom."""
+    """Multi-series line chart (wide df). Drag-to-zoom via a lower brush strip; legend bottom."""
     p = active_palette()
     data = df.reset_index() if x not in df.columns else df.copy()
     series = [c for c in data.columns if c != x]
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
-    ch = (
+    x_axis = alt.Axis(format=date_fmt)
+    if zoom:
+        brush, ov = _overview(long, x, p, y="value", color_field="Series")
+        x_enc = alt.X(f"{x}:T", title=None, axis=x_axis, scale=alt.Scale(domain=brush))
+    else:
+        x_enc = alt.X(f"{x}:T", title=None, axis=x_axis)
+    detail = (
         alt.Chart(long).mark_line(strokeWidth=2)
         .encode(
-            x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format=date_fmt)),
+            x=x_enc,
             y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
             color=alt.Color("Series:N", scale=alt.Scale(range=p["scheme"]),
-                            legend=alt.Legend(title=None)),
+                            legend=alt.Legend(title=None, orient="bottom")),
             tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
                      alt.Tooltip("value:Q", format=",.0f", title="Value")],
         )
         .properties(height=height, title=title or "")
     )
-    if zoom:
-        ch = ch.interactive()
-    return _cfg(ch, p)
+    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
+    return _cfg(chart, p)
 
 
 def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
@@ -103,7 +126,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
             x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
             y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
             color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]),
-                            legend=alt.Legend(title=None, columns=6)),
+                            legend=alt.Legend(title=None, orient="bottom", columns=6)),
             tooltip=tooltip,
         )
         .properties(height=height, title=title or "")
@@ -111,31 +134,42 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
     return _cfg(ch, p)
 
 
-def area(df: pd.DataFrame, val: str, *, x: str = "date", height: int = 300,
+def area(df: pd.DataFrame, val: str, *, x: str = "date", height: int = 280, zoom: bool = True,
          color: str | None = None, y_title: str = "USD", title: str | None = None) -> alt.Chart:
-    """Single-series filled area (e.g. accrued liability)."""
+    """Single-series filled area (e.g. accrued liability) with drag-to-zoom."""
     p = active_palette()
     data = df.reset_index() if x not in df.columns else df.copy()
     c = color or p["bad"]
-    ch = (
+    if zoom:
+        brush, ov = _overview(data, x, p, y=val, line_color=c)
+        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"), scale=alt.Scale(domain=brush))
+    else:
+        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"))
+    detail = (
         alt.Chart(data).mark_area(opacity=0.75, line={"color": c}, color=c)
         .encode(
-            x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y")),
+            x=x_enc,
             y=alt.Y(f"{val}:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
             tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=",.0f")],
         )
         .properties(height=height, title=title or "")
     )
-    return _cfg(ch, p)
+    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
+    return _cfg(chart, p)
 
 
 def dual_line(df: pd.DataFrame, left: str, right: str, *, x: str = "date",
-              left_title: str = "USD", right_title: str = "%", height: int = 320,
-              title: str | None = None) -> alt.Chart:
-    """Area (left axis, $) + line (right axis, %) on independent scales."""
+              left_title: str = "USD", right_title: str = "%", height: int = 300,
+              title: str | None = None, zoom: bool = True) -> alt.Chart:
+    """Area (left axis, $) + line (right axis, %) on independent scales, with drag-to-zoom."""
     p = active_palette()
     data = df.reset_index() if x not in df.columns else df.copy()
-    base = alt.Chart(data).encode(x=alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y")))
+    if zoom:
+        brush, ov = _overview(data, x, p, y=left, line_color=p["bad"])
+        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"), scale=alt.Scale(domain=brush))
+    else:
+        x_enc = alt.X(f"{x}:T", title=None, axis=alt.Axis(format="%b %Y"))
+    base = alt.Chart(data).encode(x=x_enc)
     left_layer = base.mark_area(opacity=0.65, color=p["bad"], line={"color": p["bad"]}).encode(
         y=alt.Y(f"{left}:Q", title=left_title, axis=alt.Axis(titleColor=p["bad"], titleAnchor="middle")),
         tooltip=[alt.Tooltip(f"{left}:Q", format=",.0f", title=left_title)],
@@ -145,10 +179,11 @@ def dual_line(df: pd.DataFrame, left: str, right: str, *, x: str = "date",
                 axis=alt.Axis(format=".0%", titleColor=p["accent"], titleAnchor="middle")),
         tooltip=[alt.Tooltip(f"{right}:Q", format=".1%", title=right_title)],
     )
-    ch = alt.layer(left_layer, right_layer).resolve_scale(y="independent").properties(
+    detail = alt.layer(left_layer, right_layer).resolve_scale(y="independent").properties(
         height=height, title=title or ""
     )
-    return _cfg(ch, p)
+    chart = alt.vconcat(detail, ov, spacing=4) if zoom else detail
+    return _cfg(chart, p)
 
 
 def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320,
@@ -161,7 +196,7 @@ def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320
         x=alt.X(f"{x}:Q", axis=alt.Axis(format=".0%", title=x_title)),
         y=alt.Y("value:Q", title="USD", axis=alt.Axis(titleAnchor="middle")),
         color=alt.Color("Series:N", scale=alt.Scale(range=[p["bad"], p["accent"]]),
-                        legend=alt.Legend(title=None)),
+                        legend=alt.Legend(title=None, orient="bottom")),
         tooltip=[alt.Tooltip(f"{x}:Q", format=".0%", title=x_title), alt.Tooltip("Series:N"),
                  alt.Tooltip("value:Q", format=",.0f")],
     )
