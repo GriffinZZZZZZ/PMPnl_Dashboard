@@ -14,3 +14,7 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Local run logs
+st_out.log
+st_err.log
