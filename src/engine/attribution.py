@@ -25,7 +25,10 @@ DT = 1.0 / TRADING_DAYS
 
 
 def contribution_by(
-    position_frame: pd.DataFrame, instruments: pd.DataFrame, dimension: str
+    position_frame: pd.DataFrame,
+    instruments: pd.DataFrame,
+    dimension: str,
+    aum: float | None = None,
 ) -> pd.DataFrame:
     """Gross PnL contribution aggregated by an instrument dimension.
 
@@ -33,9 +36,10 @@ def contribution_by(
         position_frame: output of :func:`src.engine.pnl.build_position_frame`.
         instruments: roster with ``[ticker, asset_class, sector, strategy_tag]``.
         dimension: one of ``asset_class``, ``sector``, ``strategy_tag``, ``ticker``.
+        aum: if given, add a ``return_on_aum = gross_pnl / aum`` column.
 
     Returns:
-        Frame ``[<dimension>, gross_pnl]`` sorted descending by PnL.
+        Frame ``[<dimension>, gross_pnl(, return_on_aum)]`` sorted descending by PnL.
     """
     df = position_frame.merge(instruments, on="ticker", how="left")
     out = (
@@ -43,17 +47,30 @@ def contribution_by(
         .sort_values("gross_pnl", ascending=False)
         .reset_index(drop=True)
     )
+    if aum:
+        out["return_on_aum"] = out["gross_pnl"] / aum
     return out
 
 
+def pnl_by_group(
+    pm_net_daily: pd.DataFrame, pms: pd.DataFrame, key: str = "pod_id"
+) -> pd.DataFrame:
+    """Gross/net PnL and return-on-capital by a grouping key (``pod_id`` or ``team_id``).
+
+    Returns ``[<key>, gross_pnl, net_pnl, capital, return_on_capital]`` sorted by net.
+    """
+    roster = pms[["pm_id", key, "allocated_capital"]].drop_duplicates("pm_id")
+    df = pm_net_daily.merge(roster[["pm_id", key]], on="pm_id", how="left")
+    out = df.groupby(key, as_index=False)[["gross_pnl", "net_pnl"]].sum()
+    cap = roster.groupby(key)["allocated_capital"].sum()
+    out["capital"] = out[key].map(cap)
+    out["return_on_capital"] = out["net_pnl"] / out["capital"]
+    return out.sort_values("net_pnl", ascending=False).reset_index(drop=True)
+
+
 def pnl_by_pod(pm_net_daily: pd.DataFrame, pms: pd.DataFrame) -> pd.DataFrame:
-    """Total gross & net PnL by pod (additive roll-up of its PMs)."""
-    df = pm_net_daily.merge(pms[["pm_id", "pod_id"]], on="pm_id", how="left")
-    return (
-        df.groupby("pod_id", as_index=False)[["gross_pnl", "net_pnl"]].sum()
-        .sort_values("net_pnl", ascending=False)
-        .reset_index(drop=True)
-    )
+    """Total gross & net PnL by strategy pod (additive roll-up of its PMs)."""
+    return pnl_by_group(pm_net_daily, pms, "pod_id")
 
 
 def cost_by_type(pm_net_daily: pd.DataFrame) -> pd.DataFrame:
@@ -66,14 +83,57 @@ def cost_by_type(pm_net_daily: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"cost_type": list(totals), "cost": list(totals.values())})
 
 
-def top_contributors(
-    position_frame: pd.DataFrame, instruments: pd.DataFrame, n: int = 10
+def cost_table_by(pm_net_daily: pd.DataFrame, pms: pd.DataFrame, key: str = "pod_id") -> pd.DataFrame:
+    """Cost breakdown + cost/gross ratio grouped by ``pod_id`` / ``team_id`` / ``pm_id``.
+
+    Surfaces who is expensive: returns financing/borrow/commission/total_cost,
+    gross_pnl, and ``cost_ratio = total_cost / gross_pnl``, sorted by total cost.
+    """
+    val_cols = ["financing", "borrow", "commission", "gross_pnl"]
+    if key == "pm_id":
+        df = pm_net_daily.copy()
+    else:
+        roster = pms[["pm_id", key]].drop_duplicates("pm_id")
+        df = pm_net_daily.merge(roster, on="pm_id", how="left")
+    g = df.groupby(key, as_index=False)[val_cols].sum()
+    g["total_cost"] = g["financing"] + g["borrow"] + g["commission"]
+    g["cost_ratio"] = g["total_cost"] / g["gross_pnl"].where(g["gross_pnl"] > 0)
+    return g.sort_values("total_cost", ascending=False).reset_index(drop=True)
+
+
+def position_table(
+    position_frame: pd.DataFrame, instruments: pd.DataFrame, pms: pd.DataFrame
 ) -> pd.DataFrame:
-    """Top ``n`` positive and top ``n`` negative positions by gross PnL."""
-    by_ticker = contribution_by(position_frame, instruments, "ticker")
-    top = by_ticker.head(n)
-    bottom = by_ticker.tail(n)
-    return pd.concat([top, bottom]).drop_duplicates().reset_index(drop=True)
+    """Per-position gross PnL, return, and which PMs held it.
+
+    ``position_return = total gross PnL / average daily gross exposure`` for the
+    ticker; ``held_by`` lists the PM codes that traded it. Sorted by PnL so callers
+    can take ``.head(n)`` (top contributors) and ``.tail(n)`` (detractors).
+    """
+    pf = position_frame
+    pnl = pf.groupby("ticker")["gross_pnl"].sum()
+    avg_expo = (
+        pf.groupby(["date", "ticker"])["gross_exposure"].sum().groupby("ticker").mean()
+    )
+    name = pms.set_index("pm_id")["name"]
+    holders = pf.groupby("ticker")["pm_id"].apply(
+        lambda s: ", ".join(sorted(name.reindex(s.unique()).dropna().astype(str)))
+    )
+    strat = instruments.set_index("ticker")["strategy_tag"]
+    out = pd.DataFrame({"ticker": pnl.index})
+    out["strategy_tag"] = out["ticker"].map(strat)
+    out["held_by"] = out["ticker"].map(holders)
+    out["gross_pnl"] = out["ticker"].map(pnl)
+    out["position_return"] = out["ticker"].map(pnl / avg_expo.replace(0, np.nan))
+    return out.sort_values("gross_pnl", ascending=False).reset_index(drop=True)
+
+
+def top_bottom_positions(
+    position_frame: pd.DataFrame, instruments: pd.DataFrame, pms: pd.DataFrame, n: int = 10
+) -> pd.DataFrame:
+    """Top-``n`` and bottom-``n`` positions by gross PnL (with holders + return)."""
+    tbl = position_table(position_frame, instruments, pms)
+    return pd.concat([tbl.head(n), tbl.tail(n)]).drop_duplicates("ticker").reset_index(drop=True)
 
 
 def hypothetical_netted_comp(fund_net: float, cfg: dict) -> float:

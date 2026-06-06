@@ -19,7 +19,7 @@ def _results(simple_cfg):
             "commission": [5.0, 2.0],
         }
     )
-    payoff_daily = payoff.compute_payoff(pm_net_daily, pms)
+    payoff_daily = payoff.compute_payoff(pm_net_daily, pms, simple_cfg)
     total_comp = payoff.fund_total_comp(payoff_daily)
     fund_gross = float(pm_net_daily["gross_pnl"].sum())
     fund_net = float(pm_net_daily["net_pnl"].sum())
@@ -45,5 +45,5 @@ def test_broken_investor_net_fails(simple_cfg):
     results["investor_net"] += 1.0  # tamper -> R4 (investor identity) must fail
     checks = recon.run_checks(results, simple_cfg)
     assert not recon.all_passed(checks)
-    r4 = [c for c in checks if c.name.startswith("R4")][0]
+    r4 = [c for c in checks if "Investor net" in c.name][0]
     assert not r4.passed

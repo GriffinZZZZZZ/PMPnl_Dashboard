@@ -70,7 +70,7 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
     pm_daily = pnl.pm_daily_gross(position_frame)
     pm_net_daily = costs.add_costs(pm_daily, cfg)
 
-    payoff_daily = payoff.compute_payoff(pm_net_daily, pms, payout_ratio_override)
+    payoff_daily = payoff.compute_payoff(pm_net_daily, pms, cfg, payout_ratio_override)
     total_comp = float(payoff.total_comp_by_pm(payoff_daily)["total_comp"].sum())
 
     fund_net = float(pm_net_daily["net_pnl"].sum())
@@ -86,6 +86,7 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
         "pm_net_daily": pm_net_daily,
         "payoff_daily": payoff_daily,
         "total_comp_by_pm": payoff.total_comp_by_pm(payoff_daily),
+        "effective_payout_rates": payoff.effective_payout_rates(payoff_daily),
         "fund_gross": fund_gross,
         "fund_net": fund_net,
         "total_comp": total_comp,
@@ -105,3 +106,19 @@ def fund_equity_curve(pm_net_daily: pd.DataFrame) -> pd.DataFrame:
     daily["Gross"] = daily["gross_pnl"].cumsum()
     daily["Net"] = daily["net_pnl"].cumsum()
     return daily.set_index("date")[["Gross", "Net"]]
+
+
+def comp_liability_curve(payoff_daily: pd.DataFrame, pm_net_daily: pd.DataFrame) -> pd.DataFrame:
+    """Daily accrued comp liability and its share of cumulative net PnL.
+
+    Returns a date-indexed frame ``[comp, comp_pct_of_pnl]`` where ``comp`` is the
+    fund's accrued comp liability and ``comp_pct_of_pnl`` is that liability over the
+    fund's cumulative net PnL to date (NaN until net PnL turns positive).
+    """
+    comp = payoff_daily.groupby("date")["accrued_comp"].sum().sort_index()
+    cum_net = (
+        pm_net_daily.groupby("date")["net_pnl"].sum().sort_index().cumsum()
+    )
+    out = pd.DataFrame({"comp": comp, "cum_net": cum_net})
+    out["comp_pct_of_pnl"] = out["comp"] / out["cum_net"].where(out["cum_net"] > 0)
+    return out[["comp", "comp_pct_of_pnl"]]

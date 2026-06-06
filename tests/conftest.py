@@ -24,11 +24,15 @@ def simple_cfg() -> dict:
             {"pod_id": "POD_A", "name": "A", "strategy_type": "x", "allocated_capital": 1000},
             {"pod_id": "POD_B", "name": "B", "strategy_type": "y", "allocated_capital": 1000},
         ],
+        "teams": [
+            {"team_id": "T1", "name": "Team 1"},
+            {"team_id": "T2", "name": "Team 2"},
+        ],
         "pms": [
-            {"pm_id": "PM_A", "pod_id": "POD_A", "name": "A1", "allocated_capital": 1000,
-             "payout_ratio": 0.2, "hurdle_rate": 0.0, "initial_HWM": 0, "skill": 1.0},
-            {"pm_id": "PM_B", "pod_id": "POD_B", "name": "B1", "allocated_capital": 1000,
-             "payout_ratio": 0.2, "hurdle_rate": 0.0, "initial_HWM": 0, "skill": 1.0},
+            {"pm_id": "PM_A", "pod_id": "POD_A", "team_id": "T1", "name": "A1", "allocated_capital": 1000,
+             "payout_ratio": 0.2, "hurdle_rate": 0.0, "initial_HWM": 0, "skill": 1.0, "prior_year_pnl": 0},
+            {"pm_id": "PM_B", "pod_id": "POD_B", "team_id": "T2", "name": "B1", "allocated_capital": 1000,
+             "payout_ratio": 0.2, "hurdle_rate": 0.0, "initial_HWM": 0, "skill": 1.0, "prior_year_pnl": 0},
         ],
     }
 

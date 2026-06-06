@@ -16,7 +16,7 @@ def test_netting_cost_offsetting_pods(simple_cfg):
         }
     )
     pms = pd.DataFrame(simple_cfg["pms"])
-    payoff_daily = payoff.compute_payoff(daily, pms)
+    payoff_daily = payoff.compute_payoff(daily, pms, simple_cfg)
     total_comp = payoff.fund_total_comp(payoff_daily)
     assert total_comp == 20.0  # only PM_A accrues: 0.2 * 100
 
@@ -37,7 +37,7 @@ def test_netting_cost_zero_when_no_offset(simple_cfg):
         }
     )
     pms = pd.DataFrame(simple_cfg["pms"])
-    total_comp = payoff.fund_total_comp(payoff.compute_payoff(daily, pms))
+    total_comp = payoff.fund_total_comp(payoff.compute_payoff(daily, pms, simple_cfg))
     fund_net = 200.0
     assert total_comp == 40.0
     assert attribution.hypothetical_netted_comp(fund_net, simple_cfg) == 40.0

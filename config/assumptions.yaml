@@ -10,6 +10,7 @@
 seed: 20240601
 n_business_days: 252        # ~1 trading year of daily data  (dt = 1/252)
 n_instruments: 50
+calendar_end: "2025-12-31"  # business-day calendar is anchored to this end date (full-year 2025)
 
 # -----------------------------------------------------------------------------
 # Gross -> Net bridge cost rates. Rates are ANNUAL; the engine multiplies by
@@ -25,6 +26,19 @@ costs:
 # ONCE when computing Investor Net (never inside PM Net).
 center_cost:
   bps_on_aum: 35.0          # 0.35% of AUM per year
+
+# -----------------------------------------------------------------------------
+# Structural (tiered) compensation. The per-PM `payout_ratio` below is the
+# contractual BASE rate. On top of it, a marginal ladder rewards larger profit:
+# comp = sum over tiers of (base + add_pp) * (profit-above-HWM that falls in that
+# tier). `upto` is the upper bound of profit-above-HWM for the tier (null = top).
+# Thresholds are illustrative and config-driven — raise them for more visible
+# tiering against this fund's profit magnitudes.
+# -----------------------------------------------------------------------------
+comp_tiers:
+  - {upto: 1000000,  add_pp: 0.00}   # base rate on the first $1M of profit above HWM
+  - {upto: 2000000,  add_pp: 0.03}   # +3pp marginal on $1M–$2M
+  - {upto: null,     add_pp: 0.06}   # +6pp marginal above $2M
 
 # -----------------------------------------------------------------------------
 # Price process: factor model.  r_{i,t} = beta_i * f_t + eps_{i,t}
@@ -64,6 +78,18 @@ pods:
   - {pod_id: POD_EVT, name: "Event",      strategy_type: "Event / Merger Arb", allocated_capital: 220000000}
 
 # -----------------------------------------------------------------------------
+# Teams = a SECOND pod taxonomy. Some PMs actually sit on one cross-strategy
+# team (shared risk, shared resources) even though their books map to different
+# strategy pods. Pages can group by Strategy pod OR by Team. Every PM has exactly
+# one team_id, so Fund Net = sum(Team Net) also ties out (recon R6).
+# -----------------------------------------------------------------------------
+teams:
+  - {team_id: TEAM_ALPHA, name: "Team Alpha"}
+  - {team_id: TEAM_BETA,  name: "Team Beta"}
+  - {team_id: TEAM_GAMMA, name: "Team Gamma"}
+  - {team_id: TEAM_DELTA, name: "Team Delta"}
+
+# -----------------------------------------------------------------------------
 # PMs. Each runs a sub-book with its OWN payout terms.
 #   payout_ratio : share of profit (above HWM + hurdle) paid to the PM
 #   hurdle_rate  : annual return threshold on allocated_capital; accrues as
@@ -71,22 +97,27 @@ pods:
 #   initial_HWM  : starting high-water mark on cumulative net PnL (USD)
 #   skill        : alignment of positions with realized forward returns. >0 skilled,
 #                  ~0 noise (likely underwater after costs), <0 anti-skilled (loses).
+#   team_id      : the PM's cross-strategy team (second pod taxonomy).
+#   prior_year_pnl: last year's result (USD). If NEGATIVE, it is a loss carryforward
+#                  the PM must earn back THIS year before any comp accrues
+#                  (loss_carryforward = max(0, -prior_year_pnl)).
 # Pod-level comp = sum of its PMs. allocated_capital sums to the pod's capital.
+# PM names are anonymized to codes (AAA, BBB, ...).
 # -----------------------------------------------------------------------------
 pms:
   # Equity L/S
-  - {pm_id: PM_ECM_1, pod_id: POD_ECM, name: "A. Vance",     allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0}
-  - {pm_id: PM_ECM_2, pod_id: POD_ECM, name: "B. Okafor",    allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9}
-  - {pm_id: PM_ECM_3, pod_id: POD_ECM, name: "C. Lindqvist", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4}
+  - {pm_id: PM_ECM_1, pod_id: POD_ECM, team_id: TEAM_ALPHA, name: "AAA", allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0, prior_year_pnl:         0}
+  - {pm_id: PM_ECM_2, pod_id: POD_ECM, team_id: TEAM_BETA,  name: "BBB", allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9, prior_year_pnl:         0}
+  - {pm_id: PM_ECM_3, pod_id: POD_ECM, team_id: TEAM_GAMMA, name: "CCC", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4, prior_year_pnl: -1000000}
   # Quant
-  - {pm_id: PM_QNT_1, pod_id: POD_QNT, name: "D. Reyes",     allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8}
-  - {pm_id: PM_QNT_2, pod_id: POD_QNT, name: "E. Novak",     allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1}
+  - {pm_id: PM_QNT_1, pod_id: POD_QNT, team_id: TEAM_ALPHA, name: "DDD", allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8, prior_year_pnl:         0}
+  - {pm_id: PM_QNT_2, pod_id: POD_QNT, team_id: TEAM_GAMMA, name: "EEE", allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1, prior_year_pnl:  -800000}
   # Macro
-  - {pm_id: PM_MAC_1, pod_id: POD_MAC, name: "F. Adeyemi",   allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2}
-  - {pm_id: PM_MAC_2, pod_id: POD_MAC, name: "G. Sato",      allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6}
+  - {pm_id: PM_MAC_1, pod_id: POD_MAC, team_id: TEAM_BETA,  name: "FFF", allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2, prior_year_pnl:         0}
+  - {pm_id: PM_MAC_2, pod_id: POD_MAC, team_id: TEAM_GAMMA, name: "GGG", allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6, prior_year_pnl: -1000000}
   # Credit
-  - {pm_id: PM_CRD_1, pod_id: POD_CRD, name: "H. Moreau",    allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5}
-  - {pm_id: PM_CRD_2, pod_id: POD_CRD, name: "I. Petrova",   allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6}
+  - {pm_id: PM_CRD_1, pod_id: POD_CRD, team_id: TEAM_ALPHA, name: "HHH", allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5, prior_year_pnl:         0}
+  - {pm_id: PM_CRD_2, pod_id: POD_CRD, team_id: TEAM_DELTA, name: "III", allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6, prior_year_pnl: -1500000}
   # Event
-  - {pm_id: PM_EVT_1, pod_id: POD_EVT, name: "J. Castellano",allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6}
-  - {pm_id: PM_EVT_2, pod_id: POD_EVT, name: "K. Haddad",    allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3}
+  - {pm_id: PM_EVT_1, pod_id: POD_EVT, team_id: TEAM_BETA,  name: "JJJ", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6, prior_year_pnl:         0}
+  - {pm_id: PM_EVT_2, pod_id: POD_EVT, team_id: TEAM_DELTA, name: "KKK", allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3, prior_year_pnl:         0}

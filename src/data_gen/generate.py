@@ -32,9 +32,9 @@ TRADING_DAYS = 252
 DT = 1.0 / TRADING_DAYS
 
 
-def _business_dates(n_days: int) -> pd.DatetimeIndex:
-    """Return ``n_days`` business days anchored to a fixed end date (deterministic)."""
-    return pd.bdate_range(end="2024-12-31", periods=n_days)
+def _business_dates(n_days: int, end: str = "2025-12-31") -> pd.DatetimeIndex:
+    """Return ``n_days`` business days anchored to ``end`` (deterministic)."""
+    return pd.bdate_range(end=end, periods=n_days)
 
 
 def generate_instruments(cfg: dict, rng: np.random.Generator) -> pd.DataFrame:
@@ -177,7 +177,7 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     """
     cfg = cfg or load_config()
     rng = np.random.default_rng(cfg["seed"])
-    dates = _business_dates(cfg["n_business_days"])
+    dates = _business_dates(cfg["n_business_days"], cfg.get("calendar_end", "2025-12-31"))
 
     pods = pd.DataFrame(cfg["pods"])
     pms = pd.DataFrame(cfg["pms"])

@@ -9,6 +9,10 @@ the dashboard's Controls panel.
     R3  Total Comp == sum(PM accrued_comp_T)
     R4  Investor Net == Fund Net - Total Comp - Center Cost (accrued)
     R5  Each Pod Net == sum of its PMs' Net
+    R6  Fund Net == sum(Team Net)    (the second, team taxonomy also ties out)
+
+Check names are written in plain language so a non-technical reader can see what
+each control proves.
 """
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from src.engine.attribution import pnl_by_pod
+from src.engine.attribution import pnl_by_group, pnl_by_pod
 from src.engine.economics import center_cost_total
 from src.engine.payoff import total_comp_by_pm
 
@@ -65,20 +69,20 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     checks: list[Check] = []
 
     # R1 — Fund Gross vs sum of PM / Pod gross (bottom-up MTM ties by construction).
-    checks.append(Check("R1a  Fund Gross == Sum(PM Gross)", fund_gross, float(pm_net_daily["gross_pnl"].sum())))
-    checks.append(Check("R1b  Fund Gross == Sum(Pod Gross)", fund_gross, float(pod["gross_pnl"].sum())))
+    checks.append(Check("Fund gross PnL = sum of every PM's gross", fund_gross, float(pm_net_daily["gross_pnl"].sum())))
+    checks.append(Check("Fund gross PnL = sum of every pod's gross", fund_gross, float(pod["gross_pnl"].sum())))
 
     # R2 — Fund Net vs sum of PM / Pod net.
-    checks.append(Check("R2a  Fund Net == Sum(PM Net)", fund_net, float(pm_net_daily["net_pnl"].sum())))
-    checks.append(Check("R2b  Fund Net == Sum(Pod Net)", fund_net, float(pod["net_pnl"].sum())))
+    checks.append(Check("Fund net PnL = sum of every PM's net", fund_net, float(pm_net_daily["net_pnl"].sum())))
+    checks.append(Check("Fund net PnL = sum of every pod's net", fund_net, float(pod["net_pnl"].sum())))
 
     # R3 — Total comp vs sum of per-PM accrued comp.
     sum_pm_comp = float(total_comp_by_pm(results["payoff_daily"])["total_comp"].sum())
-    checks.append(Check("R3   Total Comp == Sum(PM Comp)", total_comp, sum_pm_comp))
+    checks.append(Check("Total comp = sum of each PM's accrued comp", total_comp, sum_pm_comp))
 
     # R4 — Investor net identity (center cost accrued over the period).
     cc = center_cost_total(cfg)
-    checks.append(Check("R4   Investor Net identity", fund_net - total_comp - cc, investor_net))
+    checks.append(Check("Investor net = Fund net - comp - center cost", fund_net - total_comp - cc, investor_net))
 
     # R5 — Each pod net == sum of its PMs' net.
     pm_with_pod = pm_net_daily.merge(pms[["pm_id", "pod_id"]], on="pm_id", how="left")
@@ -87,7 +91,12 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     for pod_id, expected in pod.set_index("pod_id")["net_pnl"].items():
         actual = float(per_pod_from_pm.get(pod_id, 0.0))
         max_pod_diff = max(max_pod_diff, abs(actual - expected))
-    checks.append(Check("R5   Pod Net == Sum(its PM Net)", 0.0, max_pod_diff))
+    checks.append(Check("Each pod's net = sum of its PMs' net", 0.0, max_pod_diff))
+
+    # R6 — Team taxonomy also ties out (Fund Net == sum of Team Net).
+    if "team_id" in pms.columns:
+        team = pnl_by_group(pm_net_daily, pms, "team_id")
+        checks.append(Check("Fund net PnL = sum of every team's net", fund_net, float(team["net_pnl"].sum())))
 
     return checks
 
