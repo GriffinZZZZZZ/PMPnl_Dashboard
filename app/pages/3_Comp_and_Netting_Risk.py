@@ -149,9 +149,12 @@ sweep = pd.DataFrame({
     "Total Comp":   [compute_all(payout_ratio_override=r, date_from=date_from, date_to=date_to)["total_comp"]   for r in sweep_ratios],
     "Investor Net": [compute_all(payout_ratio_override=r, date_from=date_from, date_to=date_to)["investor_net"] for r in sweep_ratios],
 }).set_index("payout_ratio")
-st.altair_chart(
-    charts.sweep_curve(sweep, "payout_ratio", current, height=320,
-                       title="Comp & Investor Net vs Payout Ratio"),
-    width="stretch",
+charts.show_sweep(
+    sweep, "payout_ratio", current, selected_x=ratio, height=320,
+    title="Comp & Investor Net vs Payout Ratio",
 )
-st.caption(f"Dashed line = current capital-weighted base payout ratio ({current:.0%}). Comp rises and investor net falls as the ratio increases.")
+st.caption(
+    f"Dashed amber = current capital-weighted base ratio ({current:.0%}). "
+    f"Solid teal = slider selection ({ratio:.0%}). "
+    f"Comp rises and investor net falls as the ratio increases."
+)

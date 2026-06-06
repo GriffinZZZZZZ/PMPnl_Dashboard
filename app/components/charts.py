@@ -123,28 +123,20 @@ def show_line(
     series = [c for c in data.columns if c != x]
     n = len(series)
 
-    # Determine color range and whether to use a custom bottom legend.
+    # Pick palette — category20 for dense charts (>8), theme scheme otherwise.
+    # Always use custom HTML _legend (text-align:center) so alignment is consistent.
     if series_colors is not None:
         palette = list(series_colors)[:n]
-        use_native_legend = False
     elif n <= len(p["scheme"]):
         palette = p["scheme"][:n]
-        use_native_legend = False
     else:
-        # Many series: use category20, rely on Altair's native legend.
         palette = _CATEGORY20[:n]
-        use_native_legend = True
 
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
     xenc = _xenc(x)
     nearest, zoom = _hover_zoom_params(x)
-    # domain= ensures Altair assigns colors in the SAME order as our legend, not alphabetically.
-    color_scale = alt.Scale(domain=series, range=palette)
-    color = alt.Color(
-        "Series:N",
-        scale=color_scale,
-        legend=alt.Legend(orient="bottom", direction="horizontal") if use_native_legend else None,
-    )
+    # domain= ensures Altair assigns colors in the SAME order as our _legend, not alphabetically.
+    color = alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette), legend=None)
     base = alt.Chart(long)
     lines = base.mark_line(strokeWidth=2).encode(
         x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")), color=color,
@@ -158,8 +150,7 @@ def show_line(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
     chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
     event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
-    if not use_native_legend:
-        _legend([(s, palette[i]) for i, s in enumerate(series)])
+    _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
 
@@ -400,27 +391,56 @@ def html_table(df: pd.DataFrame, *, money_cols: list[str] | None = None,
     )
 
 
-def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320,
-                title: str | None = None, x_title: str = "Payout Ratio") -> alt.Chart:
-    """Sensitivity sweep (wide df indexed by ``x``) with a marked 'current' value."""
+def show_sweep(
+    df: pd.DataFrame, x: str, current_x: float, *,
+    selected_x: float | None = None,
+    height: int = 320, title: str | None = None, x_title: str = "Payout Ratio",
+) -> None:
+    """Render a sensitivity sweep with centered legend and optional slider marker.
+
+    Args:
+        current_x:  the fund's actual (baseline) payout ratio — dashed amber line.
+        selected_x: the slider-selected value — solid accent vertical line.
+                    Appears only when different from current_x.
+    """
     p = colors()
+    series_names = [c for c in df.columns]
+    palette = [p["bad"], p["accent"]]
     long = df.reset_index().melt(x, var_name="Series", value_name="value")
     ymax = float(long["value"].max())
+    ymin = float(long["value"].min())
+
     base = alt.Chart(long).mark_line(strokeWidth=2.5).encode(
         x=alt.X(f"{x}:Q", axis=alt.Axis(format=".0%", title=x_title)),
         y=alt.Y("value:Q", title="USD", axis=alt.Axis(titleAnchor="middle")),
-        color=alt.Color("Series:N", scale=alt.Scale(range=[p["bad"], p["accent"]]),
-                        legend=alt.Legend(title=None, orient="bottom")),
+        color=alt.Color("Series:N", scale=alt.Scale(domain=series_names, range=palette), legend=None),
         tooltip=[alt.Tooltip(f"{x}:Q", format=".0%", title=x_title), alt.Tooltip("Series:N"),
                  alt.Tooltip("value:Q", format=",.0f")],
     )
-    mark_df = pd.DataFrame({x: [current_x], "value": [ymax]})
-    rule = alt.Chart(mark_df).mark_rule(color=p["warn"], strokeDash=[5, 4], size=2).encode(x=f"{x}:Q")
-    label = alt.Chart(mark_df).mark_text(
+
+    # Baseline: dashed amber = fund's current ratio.
+    cur_df = pd.DataFrame({x: [current_x], "value": [ymax]})
+    cur_rule  = alt.Chart(cur_df).mark_rule(color=p["warn"], strokeDash=[5, 4], size=2).encode(x=f"{x}:Q")
+    cur_label = alt.Chart(cur_df).mark_text(
         text=f"current {current_x:.0%}", color=p["warn"], align="left", dx=6, baseline="top",
-        fontWeight=600, font=SANS).encode(x=f"{x}:Q", y="value:Q")
-    ch = alt.layer(base, rule, label).properties(height=height, title=title or "")
-    return _cfg(ch, p)
+        fontWeight=600, font=SANS,
+    ).encode(x=f"{x}:Q", y="value:Q")
+
+    layers = [base, cur_rule, cur_label]
+
+    # Slider line: solid accent = selected ratio (only when different from baseline).
+    if selected_x is not None and abs(selected_x - current_x) > 1e-6:
+        sel_df = pd.DataFrame({x: [selected_x], "value": [ymin]})
+        sel_rule = alt.Chart(sel_df).mark_rule(color=p["accent"], size=2.5).encode(x=f"{x}:Q")
+        sel_label = alt.Chart(sel_df).mark_text(
+            text=f"selected {selected_x:.0%}", color=p["accent"], align="left", dx=6, baseline="bottom",
+            fontWeight=600, font=SANS,
+        ).encode(x=f"{x}:Q", y="value:Q")
+        layers.extend([sel_rule, sel_label])
+
+    ch = _cfg(alt.layer(*layers).properties(height=height, title=title or ""), p)
+    st.altair_chart(ch, use_container_width=True)
+    _legend([(s, palette[i]) for i, s in enumerate(series_names)])
 
 
 def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None,
