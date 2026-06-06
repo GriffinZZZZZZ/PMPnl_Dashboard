@@ -17,6 +17,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "assumptions.yaml"
 DATA_DIR = REPO_ROOT / "data"
+DB_PATH = DATA_DIR / "pm_pnl.db"
 
 
 @functools.lru_cache(maxsize=8)

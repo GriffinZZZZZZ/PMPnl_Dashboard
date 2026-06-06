@@ -1,12 +1,15 @@
 """Synthetic-data generator for the PM PnL dashboard.
 
-Produces deterministic (fixed-seed) but realistic parquet tables under ``data/``:
+Produces deterministic (fixed-seed) but realistic data written to
+``data/pm_pnl.db`` (SQLite) with the following tables:
 
-* ``pods.parquet``        — one row per pod (strategy bucket).
-* ``pms.parquet``         — one row per PM, with payout terms and skill.
-* ``instruments.parquet`` — one row per tradable instrument (beta, alpha, idio vol).
-* ``prices.parquet``      — long format daily prices via a factor model.
-* ``positions.parquet``   — long format daily quantities (date, pm_id, ticker, qty).
+* ``pods``        — one row per pod (strategy bucket).
+* ``teams``       — one row per team (from config).
+* ``pms``         — one row per PM, with payout terms and skill.
+* ``instruments`` — one row per tradable instrument (beta, alpha, idio vol).
+* ``prices``      — long format daily prices via a factor model.
+* ``positions``   — long format daily quantities (date, pm_id, ticker, qty).
+* ``trades``      — OMS-style transaction log derived from position changes.
 
 Design rules:
   1. Bottom-up MTM only — PnL is never fabricated; it comes solely from
@@ -26,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from src.config import DATA_DIR, load_config
+from src.db import write_database
 
 # Trading days per year; dt scales annualized params to daily.
 TRADING_DAYS = 252
@@ -193,8 +197,7 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
         "prices": prices,
         "positions": positions,
     }
-    for name, df in tables.items():
-        df.to_parquet(DATA_DIR / f"{name}.parquet", index=False)
+    write_database(tables, cfg)
     return tables
 
 

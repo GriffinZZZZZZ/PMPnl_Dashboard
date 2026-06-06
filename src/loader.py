@@ -11,7 +11,8 @@ from typing import Any, Callable
 
 import pandas as pd
 
-from src.config import DATA_DIR, load_config
+from src.config import DB_PATH, load_config
+from src.db import read_table
 from src.engine import attribution, costs, economics, payoff, pnl
 
 # --- cache decorator that works with or without a Streamlit runtime -----------
@@ -42,13 +43,12 @@ TABLES = ["pods", "pms", "instruments", "prices", "positions"]
 
 @_cache(show_spinner=False)
 def load_all() -> dict[str, pd.DataFrame]:
-    """Load every parquet table from ``data/`` into a dict of DataFrames."""
-    missing = [t for t in TABLES if not (DATA_DIR / f"{t}.parquet").exists()]
-    if missing:
+    """Load every table from ``data/pm_pnl.db`` into a dict of DataFrames."""
+    if not DB_PATH.exists():
         raise FileNotFoundError(
-            f"Missing data tables {missing}. Run `python -m src.data_gen.generate` first."
+            f"Database not found at {DB_PATH}. Run `python run.py` first."
         )
-    return {t: pd.read_parquet(DATA_DIR / f"{t}.parquet") for t in TABLES}
+    return {t: read_table(t) for t in TABLES}
 
 
 @_cache(show_spinner=False)
