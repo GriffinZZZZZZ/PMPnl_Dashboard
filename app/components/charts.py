@@ -209,21 +209,155 @@ def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
 
 def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list,
             height: int = 380, x_title: str | None = None, y_title: str | None = None,
-            x_fmt: str = ".0%", y_fmt: str = ".0%", title: str | None = None) -> alt.Chart:
-    """Scatter with one color per category, tooltips, and a bottom legend."""
+            x_fmt: str = ".0%", y_fmt: str = ".0%", title: str | None = None,
+            label_field: str | None = None, slope1_line: bool = False) -> alt.Chart:
+    """Scatter with per-point color, tooltips, optional PM labels, optional slope-1 line.
+
+    ``label_field``: column to show as a text label next to each point.
+    ``slope1_line``: if True, draw a dashed return=vol (Sharpe=1) reference line.
+    """
     p = colors()
-    ch = (
-        alt.Chart(df).mark_circle(size=150, opacity=0.85, stroke=p["bg"], strokeWidth=1)
-        .encode(
-            x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
-            y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
-            color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]),
-                            legend=alt.Legend(title=None, orient="bottom", columns=6)),
-            tooltip=tooltip,
-        )
-        .properties(height=height, title=title or "")
+    base = alt.Chart(df)
+    points = base.mark_circle(size=150, opacity=0.85, stroke=p["bg"], strokeWidth=1).encode(
+        x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
+        y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
+        color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]), legend=None),
+        tooltip=tooltip,
     )
+    layers = [points]
+    if label_field:
+        labels = base.mark_text(dx=8, dy=-4, fontSize=10, font=SANS).encode(
+            x=alt.X(f"{x}:Q"), y=alt.Y(f"{y}:Q"),
+            text=alt.Text(f"{label_field}:N"),
+            color=alt.value(p["muted"]),
+        )
+        layers.append(labels)
+    if slope1_line:
+        x_max = float(df[x].max()) * 1.1
+        line_df = pd.DataFrame({x: [0, x_max], y: [0, x_max]})
+        slope_line = alt.Chart(line_df).mark_line(
+            strokeDash=[6, 4], color=p["muted"], opacity=0.5, size=1.5
+        ).encode(x=f"{x}:Q", y=f"{y}:Q")
+        layers.append(slope_line)
+    ch = alt.layer(*layers).properties(height=height, title=title or "")
+    return _cfg(ch, p, legend_bottom=False)
+
+
+def bar_with_return(df: pd.DataFrame, cat: str, pnl_col: str, ret_col: str, *,
+                    height: int = 340, title: str | None = None,
+                    pnl_title: str = "PnL (USD)", ret_title: str = "Return") -> alt.Chart:
+    """Bars (PnL, left axis) + points (return, right axis) — dual-axis combo.
+
+    Shows PnL magnitude and return-on-capital side by side without a toggle.
+    """
+    p = colors()
+    df = df.copy()
+    sortspec = alt.EncodingSortField(field=pnl_col, order="descending")
+    x_enc = alt.X(f"{cat}:N", sort=sortspec, axis=alt.Axis(labelAngle=-45, title=None,
+                                                             labelOverlap=False, labelLimit=0))
+    bars = (
+        alt.Chart(df).mark_bar(cornerRadiusEnd=3)
+        .encode(
+            x=x_enc,
+            y=alt.Y(f"{pnl_col}:Q", title=pnl_title, axis=alt.Axis(titleAnchor="middle")),
+            color=alt.condition(f"datum['{pnl_col}'] >= 0", alt.value(p["good"]), alt.value(p["bad"])),
+            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{pnl_col}:Q", format=",.0f", title=pnl_title)],
+        )
+    )
+    points = (
+        alt.Chart(df).mark_point(size=80, filled=True, color=p["warn"], opacity=0.9)
+        .encode(
+            x=x_enc,
+            y=alt.Y(f"{ret_col}:Q", title=ret_title,
+                    axis=alt.Axis(format=".1%", titleColor=p["warn"], titleAnchor="middle")),
+            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{ret_col}:Q", format=".1%", title=ret_title)],
+        )
+    )
+    ch = alt.layer(bars, points).resolve_scale(y="independent").properties(height=height, title=title or "")
+    return _cfg(ch, p, legend_bottom=False)
+
+
+def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col: str, *,
+                     height: int = 320, title: str | None = None,
+                     ratio_title: str = "Cost / Gross") -> alt.Chart:
+    """Stacked bars (financing/borrow/commission/fx/center) + Cost/Gross point on 2nd axis."""
+    p = colors()
+    cost_colors = [p["accent2"], p["bad"], p["warn"], p["accent"], p["muted"]][:len(cost_cols)]
+    long = df[[cat] + cost_cols].melt(id_vars=cat, var_name="Cost Type", value_name="Cost")
+    domain = cost_cols
+    stacked = (
+        alt.Chart(long).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+        .encode(
+            x=alt.X(f"{cat}:N", axis=alt.Axis(labelAngle=-45, title=None, labelOverlap=False, labelLimit=0)),
+            y=alt.Y("Cost:Q", stack="zero", title="Total Cost (USD)", axis=alt.Axis(titleAnchor="middle")),
+            color=alt.Color("Cost Type:N",
+                            scale=alt.Scale(domain=domain, range=cost_colors),
+                            legend=alt.Legend(title=None, orient="bottom")),
+            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip("Cost Type:N"),
+                     alt.Tooltip("Cost:Q", format=",.0f")],
+        )
+    )
+    points = (
+        alt.Chart(df[df[ratio_col].notna()]).mark_point(size=80, filled=True, color=p["warn"], opacity=0.9)
+        .encode(
+            x=alt.X(f"{cat}:N", axis=alt.Axis(labelAngle=-45, title=None, labelOverlap=False, labelLimit=0)),
+            y=alt.Y(f"{ratio_col}:Q", title=ratio_title,
+                    axis=alt.Axis(format=".1%", titleColor=p["warn"], titleAnchor="middle")),
+            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{ratio_col}:Q", format=".1%", title=ratio_title)],
+        )
+    )
+    ch = alt.layer(stacked, points).resolve_scale(y="independent").properties(height=height, title=title or "")
     return _cfg(ch, p)
+
+
+def html_table(df: pd.DataFrame, *, money_cols: list[str] | None = None,
+               pct_cols: list[str] | None = None, na_str: str = "n/a") -> None:
+    """Render a compact HTML table with right-aligned numeric columns via --st-* vars.
+
+    Numeric columns are right-aligned so the values line up with the header.
+    NaN / None values are displayed as ``na_str``.
+    """
+    import math
+    p = colors()
+    money_cols = money_cols or []
+    pct_cols = pct_cols or []
+
+    def _fmt(val, col):
+        if val is None or (isinstance(val, float) and math.isnan(val)):
+            return f'<span style="color:{p["muted"]}">{na_str}</span>'
+        if col in money_cols:
+            sign = "-" if val < 0 else ""
+            color = p["bad"] if val < 0 else ""
+            style = f'color:{color};' if color else ""
+            a = abs(val)
+            txt = f"{sign}${a/1e6:,.1f}M" if a >= 1e6 else f"{sign}${a:,.0f}"
+            return f'<span style="{style}">{txt}</span>'
+        if col in pct_cols:
+            color = p["bad"] if val < 0 else ""
+            style = f'color:{color};' if color else ""
+            return f'<span style="{style}">{val:.1f}%</span>'
+        return str(val)
+
+    header = "".join(
+        f'<th style="text-align:right;padding:.3rem .7rem;color:{p["muted"]};font-size:.78rem;'
+        f'text-transform:uppercase;letter-spacing:.06em;font-weight:600;'
+        f'border-bottom:1px solid {p["border"]};">{c}</th>'
+        for c in df.columns
+    )
+    rows_html = ""
+    for _, row in df.iterrows():
+        cells = "".join(
+            f'<td style="text-align:right;padding:.28rem .7rem;font-family:IBM Plex Mono,monospace;'
+            f'font-variant-numeric:tabular-nums;font-size:.88rem;">{_fmt(row[c], c)}</td>'
+            for c in df.columns
+        )
+        rows_html += f"<tr>{cells}</tr>"
+    st.markdown(
+        f'<table style="width:100%;border-collapse:collapse;background:{p["surface"]};'
+        f'border:1px solid {p["border"]};border-radius:10px;overflow:hidden;">'
+        f"<thead><tr>{header}</tr></thead><tbody>{rows_html}</tbody></table>",
+        unsafe_allow_html=True,
+    )
 
 
 def sweep_curve(df: pd.DataFrame, x: str, current_x: float, *, height: int = 320,

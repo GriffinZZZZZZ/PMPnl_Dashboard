@@ -20,25 +20,40 @@ pms, pods = results["pms"], results["pods"]
 pm_net_daily = results["pm_net_daily"]
 payoff = results["payoff_daily"]
 pod_name = pods.set_index("pod_id")["name"].to_dict()
+team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 pm_label = pms.set_index("pm_id")["name"].to_dict()
 
 page_header("Pod & PM Drill-down", "Inspect any pod or PM: performance, cost bridge, attribution, and comp.")
 
-# ---- selectors --------------------------------------------------------------
+# ---- selectors: pods + teams -----------------------------------------------
 col1, col2 = st.columns(2)
-pod_options = ["__ALL__"] + list(pods["pod_id"])
-pod_id = col1.selectbox("Pod", pod_options,
-                        format_func=lambda p: "All pods" if p == "__ALL__" else pod_name[p])
-pod_pms = pms if pod_id == "__ALL__" else pms[pms["pod_id"] == pod_id]
+# Build a combined option list: All, then each strategy pod, then each team
+pod_options = ["__ALL__"] + list(pods["pod_id"]) + [t["team_id"] for t in results["cfg"]["teams"]]
+
+def _sel_label(sid):
+    if sid == "__ALL__":
+        return "All pods"
+    if sid in pod_name:
+        return pod_name[sid]
+    return team_name.get(sid, sid)
+
+pod_id = col1.selectbox("Pod / Team", pod_options, format_func=_sel_label)
+
+# Determine which PMs belong to this selection
+if pod_id == "__ALL__":
+    pod_pms = pms
+elif pod_id in pod_name:
+    pod_pms = pms[pms["pod_id"] == pod_id]
+else:
+    pod_pms = pms[pms["team_id"] == pod_id]
+
 pm_options = ["__ALL__"] + list(pod_pms["pm_id"])
-pm_sel = col2.selectbox(
-    "PM", pm_options,
-    format_func=lambda p: ("All PMs" if pod_id == "__ALL__" else "All PMs in pod") if p == "__ALL__" else pm_label[p],
-)
+pm_sel = col2.selectbox("PM", pm_options,
+    format_func=lambda p: ("All PMs in selection") if p == "__ALL__" else pm_label[p])
 
 if pm_sel == "__ALL__":
     sel_pms = list(pod_pms["pm_id"])
-    title = "All Pods" if pod_id == "__ALL__" else pod_name[pod_id]
+    title = _sel_label(pod_id)
 else:
     sel_pms = [pm_sel]
     title = pm_label[pm_sel]
@@ -54,8 +69,8 @@ cap = float(pms.set_index("pm_id").loc[sel_pms, "allocated_capital"].sum())
 kpi_row([
     kpi_card("Allocated Capital", fmt_money(cap)),
     kpi_card("Gross PnL", fmt_money(gross), "before costs", "up" if gross >= 0 else "down"),
-    kpi_card("Net PnL", fmt_money(net), f"{fmt_pct(net/cap)} on capital", "up" if net >= 0 else "down"),
-    kpi_card("PM Comp", fmt_money(comp), "accrued liability", "down", variant="cost"),
+    kpi_card("Net PnL", fmt_money(net), f"{fmt_pct(net/cap)} on capital (after all costs)", "up" if net >= 0 else "down"),
+    kpi_card("Incentive Comp", fmt_money(comp), "accrued liability", "down", variant="cost"),
 ])
 
 # ---- equity curve -----------------------------------------------------------
@@ -64,27 +79,25 @@ curve = sel_daily.groupby("date")[["gross_pnl", "net_pnl"]].sum().sort_index().c
 curve.columns = ["Gross", "Net"]
 charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)")
 
-# ---- Gross -> Net -> Investor bridge (waterfall + income statement) ---------
+# ---- Gross -> Net -> Investor bridge ----------------------------------------
 section("Gross → Net → Investor Bridge")
 bridge = costs.bridge_components(sel_daily, sel_pms)
-cc_alloc = economics.allocate_center_cost(results["cfg"], pms).set_index("pm_id")
-center = float(cc_alloc.loc[sel_pms, "center_cost_alloc"].sum())
-investor = bridge["Net PnL"] - comp - center
+investor = bridge["PM Net"] - comp
 steps = [
-    ("Gross PnL", bridge["Gross PnL"], "total"),
-    ("− Financing", bridge["Financing"], "delta"),
-    ("− Borrow", bridge["Borrow"], "delta"),
-    ("− Commission", bridge["Commission"], "delta"),
-    ("PM Net", bridge["Net PnL"], "total"),
-    ("− PM Comp", -comp, "delta"),
-    ("− Center Cost", -center, "delta"),
-    ("Investor Net", investor, "total"),
+    ("Gross PnL",    bridge["Gross PnL"],  "total"),
+    ("− Financing",  bridge["Financing"],   "delta"),
+    ("− Borrow",     bridge["Borrow"],      "delta"),
+    ("− Commission", bridge["Commission"],  "delta"),
+    ("− FX",         bridge["FX"],          "delta"),
+    ("− Center",     bridge["Center"],      "delta"),
+    ("PM Net",       bridge["PM Net"],      "total"),
+    ("− Comp",       -comp,                 "delta"),
+    ("Investor Net", investor,              "total"),
 ]
 left, right = st.columns([3, 2])
 with left:
-    st.altair_chart(charts.waterfall(steps, height=340), width="stretch")
+    st.altair_chart(charts.waterfall(steps, height=360), width="stretch")
 with right:
-    # Income-statement-style table: indented deductions, bold subtotals, red negatives.
     p = colors()
     rows_html = ""
     subtotals = {"Gross PnL", "PM Net", "Investor Net"}
@@ -103,7 +116,7 @@ with right:
         f'border:1px solid {p["border"]};border-radius:10px;overflow:hidden;">{rows_html}</table>',
         unsafe_allow_html=True,
     )
-st.caption("Costs and comp are deductions (negative). PM Net and Investor Net are running subtotals.")
+st.caption("PM Net includes center cost pass-through. Investor Net = PM Net − Incentive Comp.")
 
 # ---- attribution ------------------------------------------------------------
 section("Strategy & Position Attribution")
@@ -118,7 +131,7 @@ with left:
         width="stretch",
     )
 with right:
-    st.markdown("**Top & Bottom Positions** — held by, return, and PnL")
+    st.markdown("**Top & Bottom PnL Positions** — held by, return, and PnL")
     posn = attribution.top_bottom_positions(pf, results["instruments"], pms, n=10)
     disp = posn.rename(columns={"ticker": "Ticker", "held_by": "Held By",
                                 "gross_pnl": "Gross PnL", "position_return": "Return"})
@@ -135,15 +148,19 @@ with right:
 # ---- HWM vs cumulative net + accrued comp ----------------------------------
 section("High-Water Mark, Cumulative Net & Accrued Comp")
 st.markdown(
-    '<div class="explain">Comp accrues <b>only on new highs above the high-water mark</b> (HWM). '
-    'While cumulative net sits below the HWM, no new comp is earned. A PM carrying a prior-year loss '
-    'must first earn it back before any comp accrues.</div>',
+    '<div class="explain">'
+    'Incentive comp accrues <b>only when cumulative net PnL creates a new high above the high-water mark (HWM)</b>. '
+    'While cumulative net is below the HWM — or below a prior-year loss carryforward — '
+    'no new comp accrues (daily_comp = 0). This is a per-PM calculation; '
+    'fund-level comp can still rise if a <em>different</em> PM makes a new high.'
+    '</div>',
     unsafe_allow_html=True,
 )
 carry = float(payoff[payoff["pm_id"].isin(sel_pms)].groupby("pm_id")["loss_carryforward"].first().sum())
 if carry > 0:
-    st.markdown(f'<div class="callout">Prior-year loss carryforward to recover first: '
-                f'<span class="big">{fmt_money(carry)}</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="callout">Prior-year loss carryforward: '
+                f'<span class="big">{fmt_money(carry)}</span> — must be recovered before comp accrues.</div>',
+                unsafe_allow_html=True)
 hwm_df = sel_payoff.groupby("date")[["cum_net", "hwm", "accrued_comp"]].sum().sort_index()
 c1, c2 = st.columns([2, 1])
 with c1:

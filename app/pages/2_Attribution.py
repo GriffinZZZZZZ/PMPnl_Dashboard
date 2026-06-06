@@ -27,63 +27,90 @@ team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 
 page_header("Attribution", "Decompose fund PnL by pod, strategy, and position — and see where costs and losses sit.")
 
-# ---- PnL / Return attribution ----------------------------------------------
+# ---- PnL + Return attribution — two charts side by side, no toggle ----------
 section("PnL Attribution")
-c1, c2 = st.columns(2)
-grouping = c1.radio("Pod taxonomy", ["Strategy Pod", "Team"], horizontal=True)
-metric = c2.radio("Metric", ["PnL", "Return"], horizontal=True)
-key = "pod_id" if grouping == "Strategy Pod" else "team_id"
-names = pod_name if key == "pod_id" else team_name
-
-left, right = st.columns(2)
-with left:
-    grp = attribution.pnl_by_group(pm_net_daily, pms, key)
-    grp["label"] = grp[key].map(names)
-    if metric == "PnL":
-        st.altair_chart(charts.bar(grp, "label", "net_pnl", diverging=True, height=340,
-                        title=f"Net PnL by {grouping}", val_title="Net PnL (USD)"), width="stretch")
-    else:
-        st.altair_chart(charts.bar(grp, "label", "return_on_capital", diverging=True, height=340,
-                        fmt=".1%", title=f"Return on Capital by {grouping}", val_title="Return"),
-                        width="stretch")
-with right:
-    strat = attribution.contribution_by(pf, instruments, "strategy_tag", aum=aum)
-    if metric == "PnL":
-        st.altair_chart(charts.bar(strat, "strategy_tag", "gross_pnl", diverging=True, height=340,
-                        title="Gross PnL by Strategy", val_title="Gross PnL (USD)"), width="stretch")
-    else:
-        st.altair_chart(charts.bar(strat, "strategy_tag", "return_on_aum", diverging=True, height=340,
-                        fmt=".2%", title="Contribution to Fund Return by Strategy", val_title="Return on AUM"),
-                        width="stretch")
+c_left, c_right = st.columns(2)
+with c_left:
+    pod_grp = attribution.pnl_by_group(pm_net_daily, pms, "pod_id")
+    pod_grp["label"] = pod_grp["pod_id"].map(pod_name)
+    st.altair_chart(
+        charts.bar_with_return(pod_grp, "label", "net_pnl", "return_on_capital",
+                               height=340, title="Net PnL by Strategy Pod",
+                               pnl_title="Net PnL (USD)", ret_title="Return on Capital"),
+        width="stretch",
+    )
+with c_right:
+    team_grp = attribution.pnl_by_group(pm_net_daily, pms, "team_id")
+    team_grp["label"] = team_grp["team_id"].map(team_name)
+    st.altair_chart(
+        charts.bar_with_return(team_grp, "label", "net_pnl", "return_on_capital",
+                               height=340, title="Net PnL by Team",
+                               pnl_title="Net PnL (USD)", ret_title="Return on Capital"),
+        width="stretch",
+    )
+st.caption("Bars = Net PnL (USD). Orange dots = return on allocated capital. Both on independent axes.")
 
 left2, right2 = st.columns(2)
 with left2:
-    ac = attribution.contribution_by(pf, instruments, "asset_class", aum=aum)
-    valcol, vt, fmt = ("gross_pnl", "Gross PnL (USD)", "~s") if metric == "PnL" else \
-        ("return_on_aum", "Return on AUM", ".2%")
-    st.altair_chart(charts.bar(ac, "asset_class", valcol, diverging=True, height=340,
-                    title="By Asset Class", val_title=vt, fmt=fmt), width="stretch")
+    strat = attribution.contribution_by(pf, instruments, "strategy_tag", aum=aum)
+    st.altair_chart(
+        charts.bar_with_return(strat, "strategy_tag", "gross_pnl", "return_on_aum",
+                               height=340, title="Gross PnL by Strategy",
+                               pnl_title="Gross PnL (USD)", ret_title="Return on AUM"),
+        width="stretch",
+    )
 with right2:
-    st.markdown("**Top & Bottom Positions** — held by, return, and PnL")
+    ac = attribution.contribution_by(pf, instruments, "asset_class", aum=aum)
+    st.altair_chart(
+        charts.bar_with_return(ac, "asset_class", "gross_pnl", "return_on_aum",
+                               height=340, title="Gross PnL by Asset Class",
+                               pnl_title="Gross PnL (USD)", ret_title="Return on AUM"),
+        width="stretch",
+    )
+
+# ---- Top / bottom PnL positions + concentration ----------------------------
+section("Position Analysis")
+pos_left, pos_right = st.columns(2)
+with pos_left:
+    st.markdown("**Top & Bottom PnL Positions** — held by, return, and PnL")
     posn = attribution.top_bottom_positions(pf, instruments, pms, n=10)
     disp = posn.rename(columns={"ticker": "Ticker", "held_by": "Held By",
                                 "gross_pnl": "Gross PnL", "position_return": "Return"})
     disp["Return"] = disp["Return"] * 100
     st.dataframe(
         style_negative(disp[["Ticker", "Held By", "Gross PnL", "Return"]], subset=["Gross PnL", "Return"]),
-        hide_index=True, width="stretch", height=340,
+        hide_index=True, width="stretch", height=320,
         column_config={
             "Gross PnL": st.column_config.NumberColumn(format="$%.0f"),
             "Return": st.column_config.NumberColumn(format="%.1f%%"),
         },
     )
+with pos_right:
+    st.markdown("**Top 10 Positions by NMV / AUM** — concentration risk")
+    conc = attribution.concentration_table(pf, results["prices"], pms, aum, n=10)
+    disp_c = conc.copy()
+    disp_c["NMV"] = disp_c["nmv"]
+    disp_c["NMV / AUM"] = disp_c["nmv_pct_aum"] * 100
+    disp_c = disp_c.rename(columns={"ticker": "Ticker", "held_by": "Held By"})[
+        ["Ticker", "Held By", "NMV", "NMV / AUM"]
+    ]
+    st.dataframe(
+        disp_c, hide_index=True, width="stretch", height=320,
+        column_config={
+            "NMV": st.column_config.NumberColumn(format="$%.0f"),
+            "NMV / AUM": st.column_config.NumberColumn(format="%.2f%%"),
+        },
+    )
+st.caption("NMV = net market value (signed, last date). High NMV/AUM = concentrated position risk.")
 
 # ---- cost attribution -------------------------------------------------------
 section("Cost Attribution")
-total_cost = float(pm_net_daily[["financing", "borrow", "commission"]].sum().sum())
+total_cost = float(pm_net_daily[["financing", "borrow", "commission",
+                                  "fx", "center"]].sum().sum())
 fund_cost_ratio = total_cost / results["fund_gross"] if results["fund_gross"] else float("nan")
 m1, m2 = st.columns(2)
-m1.metric("Total Trading Cost", f"${total_cost/1e6:,.1f}M")
+m1.metric("Total Trading + Overhead Cost", f"${total_cost/1e6:,.1f}M",
+          help="Includes financing, borrow, commission, FX, and center pass-through.")
 m2.metric("Cost / Gross PnL", fmt_pct(fund_cost_ratio),
           help="Low ratio = performance comes from revenue, not just cost control.")
 
@@ -94,38 +121,50 @@ label_map = {"pod_id": pod_name, "team_id": team_name,
              "pm_id": pms.set_index("pm_id")["name"].to_dict()}[cost_key]
 ctab["Name"] = ctab[cost_key].map(label_map)
 
-left3, right3 = st.columns(2)
-with left3:
-    st.altair_chart(charts.bar(ctab, "Name", "total_cost", color=None, height=320,
-                    title=f"Total Cost by {cost_key_label}", val_title="Total Cost (USD)"),
-                    width="stretch")
-with right3:
-    st.markdown(f"**Cost detail by {cost_key_label}** (highest first)")
-    show = ctab.rename(columns={"financing": "Financing", "borrow": "Borrow",
-                                "commission": "Commission", "total_cost": "Total Cost",
-                                "cost_ratio": "Cost / Gross"})
-    show = show[["Name", "Financing", "Borrow", "Commission", "Total Cost", "Cost / Gross"]].copy()
-    show["Cost / Gross"] = show["Cost / Gross"] * 100
-    st.dataframe(
-        show, hide_index=True, width="stretch", height=320,
-        column_config={
-            "Financing": st.column_config.NumberColumn(format="$%.0f"),
-            "Borrow": st.column_config.NumberColumn(format="$%.0f"),
-            "Commission": st.column_config.NumberColumn(format="$%.0f"),
-            "Total Cost": st.column_config.NumberColumn(format="$%.0f"),
-            "Cost / Gross": st.column_config.NumberColumn(format="%.1f%%"),
-        },
+present_cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center"] if c in ctab.columns]
+rename_map = {"financing": "Financing", "borrow": "Borrow", "commission": "Commission",
+              "fx": "FX", "center": "Center"}
+display_cost_cols = [rename_map[c] for c in present_cost_cols]
+ctab_display = ctab.rename(columns=rename_map)
+
+c3, c4 = st.columns(2)
+with c3:
+    st.altair_chart(
+        charts.stacked_cost_bar(ctab_display, "Name", display_cost_cols, "cost_ratio",
+                                height=320, title=f"Cost Breakdown by {cost_key_label}",
+                                ratio_title="Cost / Gross PnL"),
+        width="stretch",
+    )
+with c4:
+    st.markdown(f"**Cost detail by {cost_key_label}** — sorted by total cost")
+    show_cols = ["Name"] + display_cost_cols + ["Total Cost", "Cost / Gross"]
+    ctab_display["Total Cost"] = ctab_display["total_cost"]
+    ctab_display["Cost / Gross"] = ctab_display["cost_ratio"] * 100
+    charts.html_table(
+        ctab_display[show_cols],
+        money_cols=display_cost_cols + ["Total Cost"],
+        pct_cols=["Cost / Gross"],
+        na_str="n/a",
     )
 
 # ---- risk vs return scatter -------------------------------------------------
 section("Risk vs Return by PM")
 rr = attribution.risk_return(pm_net_daily, pms)
-tooltip = [alt.Tooltip("name:N", title="PM"),
-           alt.Tooltip("annual_return:Q", format=".1%", title="Return"),
-           alt.Tooltip("annual_vol:Q", format=".1%", title="Volatility")]
+tooltip = [
+    alt.Tooltip("name:N", title="PM"),
+    alt.Tooltip("annual_return:Q", format=".1%", title="Return on Capital"),
+    alt.Tooltip("annual_vol:Q", format=".1%", title="Annualized Volatility"),
+    alt.Tooltip("sharpe:Q", format=".2f", title="Sharpe Ratio"),
+]
 st.altair_chart(
-    charts.scatter(rr, "annual_vol", "annual_return", color_field="name", tooltip=tooltip,
-                   height=400, x_title="Annualized Volatility", y_title="Annualized Return on Capital"),
+    charts.scatter(rr, "annual_vol", "annual_return",
+                   color_field="name", tooltip=tooltip,
+                   height=400,
+                   x_title="Annualized Volatility",
+                   y_title="Annualized Return on Capital",
+                   label_field="name",
+                   slope1_line=True,
+                   title="Risk vs Return by PM"),
     width="stretch",
 )
-st.caption("Each point is a PM, one color each. Up-and-left is better (more return per unit of risk).")
+st.caption("Each point is a PM. Dashed line = Sharpe ratio 1.0 (return = vol). Points above the line have Sharpe > 1. Hover for Sharpe ratio.")

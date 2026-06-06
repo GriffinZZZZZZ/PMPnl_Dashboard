@@ -41,7 +41,9 @@ def contribution_by(
     Returns:
         Frame ``[<dimension>, gross_pnl(, return_on_aum)]`` sorted descending by PnL.
     """
-    df = position_frame.merge(instruments, on="ticker", how="left")
+    # Drop columns that already exist in position_frame to avoid merge conflicts.
+    inst_cols = [c for c in instruments.columns if c not in position_frame.columns or c == "ticker"]
+    df = position_frame.merge(instruments[inst_cols], on="ticker", how="left")
     out = (
         df.groupby(dimension, as_index=False)["gross_pnl"].sum()
         .sort_values("gross_pnl", ascending=False)
@@ -206,7 +208,7 @@ def concentration_table(
     last_date = position_frame["date"].max()
     last = position_frame[position_frame["date"] == last_date].copy()
     last_price = prices[prices["date"] == last_date].set_index("ticker")["price"]
-    last["nmv"] = last["qty"] * last["ticker"].map(last_price)
+    last["nmv"] = last["qty"] * last["ticker"].map(last_price).fillna(0.0)
     nmv = last.groupby("ticker")["nmv"].sum()
     pm_name = pms.set_index("pm_id")["name"]
     holders = (
@@ -249,7 +251,7 @@ def netting_cost_curve(
     # Daily fund total accrued comp
     total_comp_daily = payoff_daily.groupby("date")["accrued_comp"].sum().sort_index()
 
-    df = pd.DataFrame({"cum_net": cum_net, "total_comp": total_comp_daily}).fillna(method="ffill")
+    df = pd.DataFrame({"cum_net": cum_net, "total_comp": total_comp_daily}).ffill()
     df["hyp_comp"] = blended * (df["cum_net"] - sum_hwm0 - sum_hurdle).clip(lower=0)
     df["netting_cost"] = (df["total_comp"] - df["hyp_comp"]).clip(lower=0)
     return df[["cum_net", "total_comp", "netting_cost"]]

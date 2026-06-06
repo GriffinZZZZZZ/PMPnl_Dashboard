@@ -44,6 +44,17 @@ def colors() -> dict:
 # Thin component CSS — uses --st-* theme variables so it follows light/dark natively.
 _CSS = """
 <style>
+/* ---- sidebar nav: bigger, cleaner ---------------------------------------- */
+[data-testid="stSidebarNav"] { padding: .6rem 0; }
+[data-testid="stSidebarNav"] a { font-size: .95rem !important; font-weight: 500;
+  padding: .5rem 1rem; border-radius: 8px; margin: 2px .5rem; display: block;
+  color: var(--st-text-color) !important; text-decoration: none !important;
+  transition: background .15s; }
+[data-testid="stSidebarNav"] a:hover { background: var(--st-secondary-background-color); }
+[data-testid="stSidebarNav"] a[aria-current="page"] {
+  background: var(--st-secondary-background-color);
+  border-left: 3px solid var(--st-primary-color); font-weight: 700; }
+
 .block-container { padding-top: 2.0rem; padding-bottom: 3rem; max-width: 1400px; }
 
 .page-title { font-family: var(--st-heading-font); font-size: 2.1rem; font-weight: 600;

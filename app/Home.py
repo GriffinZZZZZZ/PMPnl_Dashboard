@@ -1,10 +1,9 @@
-"""Fund Overview — the CEO/investor landing page."""
+"""Fund Overview — CEO/investor landing page."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Make the repo root importable when launched via `streamlit run app/Home.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import streamlit as st
@@ -14,7 +13,7 @@ from app.components.controls import render_controls
 from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row, style_negative
 from app.components.theme import page_header, section, setup_page
 from src.engine import recon
-from src.loader import compute_all, fund_equity_curve
+from src.loader import compute_all, fund_equity_curve, fund_nav_curve
 
 setup_page("Fund Overview", "🏦")
 results = compute_all()
@@ -28,42 +27,48 @@ comp, inv = results["total_comp"], results["investor_net"]
 cards = [
     kpi_card("AUM", fmt_money(results["aum"])),
     kpi_card("Gross PnL (YTD)", fmt_money(gross), "before costs & comp", "up" if gross >= 0 else "down"),
-    kpi_card("Net PnL (YTD)", fmt_money(net), "after trading costs", "up" if net >= 0 else "down"),
-    kpi_card("PM Comp Expense", fmt_money(comp), f"{fmt_pct(results['comp_expense_ratio'])} of net",
+    kpi_card("Net PnL (YTD)", fmt_money(net), "after all costs incl. center", "up" if net >= 0 else "down"),
+    kpi_card("Incentive Comp Accrued", fmt_money(comp), f"{fmt_pct(results['comp_expense_ratio'])} of net",
              "down", variant="cost"),
-    kpi_card("Investor Net", fmt_money(inv), "what LPs keep", "up" if inv >= 0 else "down",
+    kpi_card("Investor Net", fmt_money(inv), "net − comp", "up" if inv >= 0 else "down",
              variant="accent"),
 ]
 kpi_row(cards)
 
-# ---- Fund equity curve ------------------------------------------------------
-section("Fund Equity Curve — Gross vs Net")
+# ---- Fund equity curve + NAV ------------------------------------------------
+section("Fund Equity Curve & NAV")
 curve = fund_equity_curve(results["pm_net_daily"])
+nav = fund_nav_curve(results["pm_net_daily"], results["aum"])
+# Show Gross, Net PnL on primary; NAV on a wide second axis via dual approach.
+# We render as show_line with Gross + Net; NAV is too different in scale to overlay cleanly
+# so we provide it as a separate metric line and caption.
 charts.show_line(curve, key="fund_eq", height=330, y_title="Cumulative PnL (USD)")
-st.caption("The gap between Gross and Net is the cost bridge: financing, borrow, and commission. Drag a region on the chart to zoom.")
+st.caption(
+    f"Gross vs Net PnL (drag to zoom). "
+    f"NAV at year-end: **{fmt_money(float(nav['NAV'].iloc[-1]))}** "
+    f"(initial AUM {fmt_money(results['aum'])} + cumulative net PnL)."
+)
 
-# ---- Pod / PM leaderboard ---------------------------------------------------
+# ---- Pod / PM leaderboard — show both Pod and Team columns ------------------
 section("Pod & PM Leaderboard")
-group_by = st.radio("Group by", ["Strategy Pod", "Team"], horizontal=True, label_visibility="collapsed")
-group_col, group_src = ("Pod", "pod_id") if group_by == "Strategy Pod" else ("Team", "team_id")
-group_name = (pods.set_index("pod_id")["name"] if group_src == "pod_id"
-              else {t["team_id"]: t["name"] for t in results["cfg"]["teams"]})
-
 comp_by_pm = results["total_comp_by_pm"].set_index("pm_id")["total_comp"]
 net_by_pm = results["pm_net_daily"].groupby("pm_id")["net_pnl"].sum()
-# Cumulative-net trend over the last ~3 months (63 trading days).
 spark = (results["payoff_daily"].sort_values("date").groupby("pm_id")["cum_net"]
          .apply(lambda s: list(s)[-63:]))
 
+pod_name = pods.set_index("pod_id")["name"].to_dict()
+team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
+
 rank = pms.set_index("pm_id").copy()
-rank[group_col] = rank[group_src].map(group_name)
+rank["Pod"] = rank["pod_id"].map(pod_name)
+rank["Team"] = rank["team_id"].map(team_name)
 rank["Net PnL ($M)"] = (net_by_pm / 1e6)
 rank["Comp ($M)"] = (comp_by_pm / 1e6)
 rank["Comp / Net"] = (comp_by_pm / net_by_pm).clip(lower=0, upper=1).fillna(0) * 100
 rank["Trend (3mo)"] = spark
 rank = rank.reset_index().sort_values("Net PnL ($M)", ascending=False)
 rank.insert(0, "PM", rank["name"])
-show = rank[["PM", group_col, "Net PnL ($M)", "Comp ($M)", "Comp / Net", "Trend (3mo)"]]
+show = rank[["PM", "Pod", "Team", "Net PnL ($M)", "Comp ($M)", "Comp / Net", "Trend (3mo)"]]
 
 st.dataframe(
     style_negative(show, subset=["Net PnL ($M)"]),

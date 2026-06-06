@@ -1,4 +1,4 @@
-"""PM Comp as Cost — comp expense, accrued liability, netting risk, sensitivity."""
+"""Incentive Compensation Accrual — comp expense, liability, netting risk, sensitivity."""
 from __future__ import annotations
 
 import sys
@@ -6,100 +6,126 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import pandas as pd
 import streamlit as st
 
 from app.components import charts
-from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row, style_negative
+from app.components.kpi import fmt_money, fmt_pct, kpi_card, kpi_row
 from app.components.theme import page_header, section, setup_page
 from src.config import blended_payout_ratio
+from src.engine import attribution
 from src.loader import comp_liability_curve, compute_all
 
-setup_page("PM Comp as Cost", "💰")
+setup_page("Incentive Compensation Accrual", "💰")
 results = compute_all()
 cfg = results["cfg"]
 pms, pods = results["pms"], results["pods"]
 pod_name = pods.set_index("pod_id")["name"].to_dict()
+team_name = {t["team_id"]: t["name"] for t in cfg["teams"]}
 
 page_header(
-    "PM Comp as Cost",
-    "PM compensation is the fund's largest, most volatile expense — and it is asymmetric: the fund pays for gains but eats the losses.",
+    "Incentive Compensation Accrual",
+    "Incentive comp is a GAAP liability that accrues daily against each PM's high-water mark. "
+    "It is the fund's largest variable expense — asymmetric: the fund pays on gains, absorbs losses.",
 )
 
-# ---- comp expense KPI row ---------------------------------------------------
+# ---- KPI row ----------------------------------------------------------------
 kpi_row([
-    kpi_card("Total PM Comp", fmt_money(results["total_comp"]), "accrued liability", "down", variant="cost"),
+    kpi_card("Total Accrued Comp", fmt_money(results["total_comp"]),
+             "GAAP liability to date", "down", variant="cost"),
     kpi_card("Comp / Net PnL", fmt_pct(results["comp_expense_ratio"]), "expense ratio", "flat"),
-    kpi_card("Netting Cost", fmt_money(results["netting_cost"]), "comp on offset gains", "down", variant="cost"),
-    kpi_card("Investor Net", fmt_money(results["investor_net"]), "after comp & center", "up", variant="accent"),
+    kpi_card("Netting Cost", fmt_money(results["netting_cost"]),
+             "comp on offset gains", "down", variant="cost"),
+    kpi_card("Investor Net", fmt_money(results["investor_net"]),
+             "net PnL − comp", "up", variant="accent"),
 ])
 
-# ---- comp by pod / PM -------------------------------------------------------
-section("Comp Expense by Pod & PM")
+# ---- comp by pod AND by team (two charts, no toggle) ----------------------
+section("Accrued Incentive Comp by Pod & Team")
 tiers = cfg.get("comp_tiers", [])
 tier_txt = ", ".join(
-    f"+{t['add_pp']*100:.0f}pp above ${t['upto']/1e6:.0f}M" if t.get("upto") else f"+{t['add_pp']*100:.0f}pp on the rest"
+    f"+{t['add_pp']*100:.0f}pp above ${t['upto']/1e6:.0f}M" if t.get("upto")
+    else f"+{t['add_pp']*100:.0f}pp on the rest"
     for t in tiers if t["add_pp"] > 0
 )
 st.markdown(
-    f'<div class="explain">Each PM has a contractual <b>base payout ratio</b>; a structural ladder adds '
-    f'marginal points on larger profit ({tier_txt}). The <b>effective rate</b> is the realized blend.</div>',
+    f'<div class="explain">Each PM has a contractual <b>base payout ratio</b> (% of eligible profit above HWM). '
+    f'Structural ladder adds marginal points on larger profit ({tier_txt}). '
+    f'The <b>effective rate</b> is the realized blend. Comp is paid on net PnL <em>after</em> '
+    f'center cost pass-through.</div>',
     unsafe_allow_html=True,
 )
-comp_pm = results["total_comp_by_pm"].merge(pms[["pm_id", "name", "pod_id", "payout_ratio"]], on="pm_id")
+
+comp_pm = results["total_comp_by_pm"].merge(
+    pms[["pm_id", "name", "pod_id", "team_id", "payout_ratio"]], on="pm_id"
+)
 comp_pm["Pod"] = comp_pm["pod_id"].map(pod_name)
+comp_pm["Team"] = comp_pm["team_id"].map(team_name)
 eff = results["effective_payout_rates"].set_index("pm_id")["effective_payout_rate"]
-net_by_pm = results["pm_net_daily"].groupby("pm_id")["net_pnl"].sum()
 comp_pm["Effective Rate"] = comp_pm["pm_id"].map(eff)
 
-left, right = st.columns(2)
-with left:
+c1, c2, c3 = st.columns(3)
+with c1:
     by_pod = comp_pm.groupby("Pod", as_index=False)["total_comp"].sum()
-    st.altair_chart(charts.bar(by_pod, "Pod", "total_comp", color=None, height=340,
-                    title="Comp Expense by Pod", val_title="Comp (USD)"), width="stretch")
-with right:
-    st.markdown("**By PM** — base ratio, effective rate, and comp")
+    st.altair_chart(charts.bar(by_pod, "Pod", "total_comp", color=None, height=280,
+                    title="By Strategy Pod", val_title="Accrued Comp (USD)"), width="stretch")
+with c2:
+    by_team = comp_pm.groupby("Team", as_index=False)["total_comp"].sum()
+    st.altair_chart(charts.bar(by_team, "Team", "total_comp", color=None, height=280,
+                    title="By Team", val_title="Accrued Comp (USD)"), width="stretch")
+with c3:
+    st.markdown("**By PM** — base rate, effective rate, comp")
     tbl = comp_pm.copy()
-    tbl["Base Payout Ratio"] = tbl["payout_ratio"] * 100
-    tbl["Effective Rate"] = tbl["Effective Rate"] * 100
+    tbl["Base Rate"] = tbl["payout_ratio"] * 100
+    tbl["Eff. Rate"] = tbl["Effective Rate"] * 100
     tbl["Comp ($M)"] = tbl["total_comp"] / 1e6
-    show = tbl[["name", "Pod", "Base Payout Ratio", "Effective Rate", "Comp ($M)"]].rename(
+    show = tbl[["name", "Pod", "Base Rate", "Eff. Rate", "Comp ($M)"]].rename(
         columns={"name": "PM"}).sort_values("Comp ($M)", ascending=False)
     st.dataframe(
-        show, hide_index=True, width="stretch", height=340,
+        show, hide_index=True, width="stretch", height=280,
         column_config={
-            "Base Payout Ratio": st.column_config.NumberColumn(format="%.0f%%"),
-            "Effective Rate": st.column_config.NumberColumn(format="%.1f%%"),
+            "Base Rate": st.column_config.NumberColumn(format="%.0f%%"),
+            "Eff. Rate": st.column_config.NumberColumn(format="%.1f%%"),
             "Comp ($M)": st.column_config.NumberColumn(format="$%.1fM"),
         },
     )
 
-# ---- accrued comp liability + share of PnL ---------------------------------
+# ---- accrued comp liability + share of gross PnL ---------------------------
 section("Accrued Comp Liability Over Time")
 liab = comp_liability_curve(results["payoff_daily"], results["pm_net_daily"])
-liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_pnl": "Comp % of Net PnL"})
-charts.show_dual(liab, "Accrued Comp", "Comp % of Net PnL", key="comp_liab",
-                 left_title="Accrued Comp (USD)", right_title="Comp % of Net PnL", height=320)
-st.caption("Red area = comp the fund has booked as a liability; teal line = that comp as a share of net PnL to date.")
+liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Gross PnL"})
+charts.show_dual(liab, "Accrued Comp", "Comp % of Gross PnL", key="comp_liab",
+                 left_title="Accrued Comp (USD)", right_title="Comp % of Gross PnL", height=320)
+st.caption(
+    "Red area = cumulative incentive comp booked as a GAAP liability. "
+    "Teal line = that comp as a share of cumulative gross PnL. "
+    "Comp accrues only when a PM creates a new high above their HWM — "
+    "flat periods mean no PMs made new highs that day."
+)
 
-# ---- netting risk -----------------------------------------------------------
-section("Netting Risk")
+# ---- netting risk time series -----------------------------------------------
+section("Netting Risk Over Time")
 st.markdown(
-    f'<div class="callout">When one pod\'s gains are offset by another\'s losses, investors net less '
-    f'but the fund still owes the winners. The fund pays <span class="big">'
-    f'{fmt_money(results["netting_cost"])}</span> more comp than if it were charged on its single netted book.</div>',
+    f'<div class="callout">When Pod A wins and Pod B loses by the same amount, investors net zero — '
+    f'but the fund still owes Pod A\'s comp. The cumulative extra comp the fund has paid '
+    f'on gains that were offset by losses is currently '
+    f'<span class="big">{fmt_money(results["netting_cost"])}</span>.</div>',
     unsafe_allow_html=True,
 )
-netting_df = pd.DataFrame({
-    "Basis": ["Comp actually owed (per-PM)", "Comp if netted as one book"],
-    "USD": [results["total_comp"], results["hypothetical_netted_comp"]],
-})
-st.altair_chart(charts.bar(netting_df, "Basis", "USD", horizontal=True, sort_by_value=False,
-                color=None, height=200, val_title="USD"), width="stretch")
+netting_ts = attribution.netting_cost_curve(
+    results["payoff_daily"], results["pm_net_daily"], cfg
+)
+charts.show_line(
+    netting_ts[["total_comp", "netting_cost"]].rename(
+        columns={"total_comp": "Total Accrued Comp", "netting_cost": "Netting Cost"}
+    ),
+    key="netting_ts", height=280, y_title="USD",
+    title="Cumulative Netting Cost vs Total Accrued Comp",
+)
+st.caption("Netting cost = comp actually paid minus what the fund would pay if all PMs were netted into one book.")
 
-# ---- payout ratio sensitivity ----------------------------------------------
+# ---- payout ratio sensitivity -----------------------------------------------
 section("Decision Tool — Payout Ratio Sensitivity")
-st.caption("Move the slider to see how a fund-wide base payout ratio changes comp expense and investor net, live.")
+st.caption("Move the slider to see how a change in the fund-wide base payout ratio affects comp and investor net.")
 ratio = st.slider("Fund-wide base payout ratio (override)", 0.05, 0.40, 0.18, 0.01)
 scenario = compute_all(payout_ratio_override=ratio)
 
@@ -111,6 +137,7 @@ c2.metric("Scenario Investor Net", fmt_money(scenario["investor_net"]), fmt_mone
 c3.metric("Scenario Comp / Net", fmt_pct(scenario["comp_expense_ratio"]))
 
 current = blended_payout_ratio(cfg)
+import pandas as pd
 sweep_ratios = [round(x / 100, 2) for x in range(5, 41, 1)]
 sweep = pd.DataFrame({
     "payout_ratio": sweep_ratios,
@@ -122,5 +149,4 @@ st.altair_chart(
                        title="Comp & Investor Net vs Payout Ratio"),
     width="stretch",
 )
-st.caption(f"Dashed line marks the current capital-weighted base payout ratio ({current:.0%}). "
-           "Comp rises and investor net falls as the payout ratio increases — the core finance trade-off.")
+st.caption(f"Dashed line = current capital-weighted base payout ratio ({current:.0%}). Comp rises and investor net falls as the ratio increases.")
