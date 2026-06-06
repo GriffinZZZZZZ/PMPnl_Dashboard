@@ -252,7 +252,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
     points = base.mark_circle(size=150, opacity=0.85, stroke=p["bg"], strokeWidth=1).encode(
         x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
         y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
-        color=alt.Color(f"{color_field}:N", scale=alt.Scale(range=p["scheme"]), legend=None),
+        color=alt.Color(f"{color_field}:N", scale=alt.Scale(scheme="category20"), legend=None),
         tooltip=tooltip,
     )
     layers = [points]
@@ -331,16 +331,19 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
                      alt.Tooltip("Cost:Q", format=",.0f")],
         )
     )
+    # Ratio dot uses accent (teal), distinct from all 6 cost-segment colors.
     points = (
-        alt.Chart(df[df[ratio_col].notna()]).mark_point(size=80, filled=True, color=p["warn"], opacity=0.9)
+        alt.Chart(df[df[ratio_col].notna()]).mark_point(size=80, filled=True, color=p["accent"], opacity=0.9)
         .encode(
             x=alt.X(f"{cat}:N", axis=alt.Axis(labelAngle=-45, title=None, labelOverlap=False, labelLimit=0)),
             y=alt.Y(f"{ratio_col}:Q", title=ratio_title,
-                    axis=alt.Axis(format=".1%", titleColor=p["warn"], titleAnchor="middle")),
+                    axis=alt.Axis(format=".1%", titleColor=p["accent"], titleAnchor="middle")),
             tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{ratio_col}:Q", format=".1%", title=ratio_title)],
         )
     )
-    ch = alt.layer(stacked, points).resolve_scale(y="independent").properties(height=height, title=title or "")
+    # padding bottom gives room for -45° labels that extend below the data area.
+    ch = (alt.layer(stacked, points).resolve_scale(y="independent")
+          .properties(height=height, title=title or "", padding={"bottom": 70}))
     return _cfg(ch, p)
 
 
@@ -470,13 +473,14 @@ def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None
     ch = (
         alt.Chart(df).mark_bar(size=30, cornerRadius=2)
         .encode(
-            x=alt.X("label:N", sort=order, axis=alt.Axis(labelAngle=-45, title=None)),
+            x=alt.X("label:N", sort=order,
+                    axis=alt.Axis(labelAngle=-45, title=None, labelLimit=0, labelOverlap=False)),
             y=alt.Y("lo:Q", title="USD", axis=alt.Axis(format=fmt, titleAnchor="middle")),
             y2="hi:Q",
             color=alt.Color("dir:N", scale=scale, legend=None),
             tooltip=[alt.Tooltip("label:N", title="Component"),
                      alt.Tooltip("amount:Q", format=",.0f", title="Amount")],
         )
-        .properties(height=height, title=title or "")
+        .properties(height=height, title=title or "", padding={"bottom": 80})
     )
     return _cfg(ch, p, legend_bottom=False)
