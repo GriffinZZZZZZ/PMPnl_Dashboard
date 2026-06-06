@@ -56,7 +56,7 @@ net_by_pm = results["pm_net_daily"].groupby("pm_id")["net_pnl"].sum()
 spark = (results["payoff_daily"].sort_values("date").groupby("pm_id")["cum_net"]
          .apply(lambda s: list(s)[-63:]))
 
-pod_name = pods.set_index("pod_id")["name"].to_dict()
+pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 
 rank = pms.set_index("pm_id").copy()
@@ -67,7 +67,7 @@ rank["Comp ($M)"] = (comp_by_pm / 1e6)
 rank["Comp / Net"] = (comp_by_pm / net_by_pm).clip(lower=0, upper=1).fillna(0) * 100
 rank["Trend (3mo)"] = spark
 rank = rank.reset_index().sort_values("Net PnL ($M)", ascending=False)
-rank.insert(0, "PM", rank["name"])
+rank.insert(0, "PM", rank["pm_name"])
 show = rank[["PM", "Pod", "Team", "Net PnL ($M)", "Comp ($M)", "Comp / Net", "Trend (3mo)"]]
 
 st.dataframe(

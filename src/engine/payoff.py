@@ -72,8 +72,8 @@ def compute_payoff(
 
     Args:
         pm_net_daily: per-PM daily frame containing ``[date, pm_id, net_pnl]``.
-        pms: roster with ``[pm_id, payout_ratio, hurdle_rate, initial_HWM,
-            allocated_capital, prior_year_pnl]``.
+        pms: roster with ``[pm_id, payout_ratio, hurdle_rate, initial_hwm,
+            pm_aum, loss_carryforward]``.
         cfg: parsed config; reads ``cfg['comp_tiers']``.
         payout_ratio_override: if given, replaces every PM's BASE payout ratio
             (used by the dashboard sensitivity slider; tiers still add on top).
@@ -85,28 +85,27 @@ def compute_payoff(
     df = add_cumulative(pm_net_daily[["date", "pm_id", "net_pnl"]], "net_pnl", "pm_id", "cum_net")
 
     meta = pms.set_index("pm_id")
-    cols = ["payout_ratio", "hurdle_rate", "initial_HWM", "allocated_capital"]
-    if "prior_year_pnl" in meta.columns:
-        cols.append("prior_year_pnl")
+    cols = ["payout_ratio", "hurdle_rate", "initial_hwm", "pm_aum"]
+    if "loss_carryforward" in meta.columns:
+        cols.append("loss_carryforward")
     df = df.join(meta[cols], on="pm_id")
-    if "prior_year_pnl" not in df.columns:
-        df["prior_year_pnl"] = 0.0
-    df["loss_carryforward"] = (-df["prior_year_pnl"]).clip(lower=0)
+    if "loss_carryforward" not in df.columns:
+        df["loss_carryforward"] = 0.0
     if payout_ratio_override is not None:
         df["payout_ratio"] = payout_ratio_override
 
     grp = df.groupby("pm_id", sort=False)
     # Day ordinal t = 1..n within each PM (time-scaled hurdle).
     df["t"] = grp.cumcount() + 1
-    df["hurdle_amt"] = df["hurdle_rate"] * df["allocated_capital"] * (df["t"] * DT)
+    df["hurdle_amt"] = df["hurdle_rate"] * df["pm_aum"] * (df["t"] * DT)
 
     # Running high-water mark, floored at the initial HWM.
     df["hwm"] = grp["cum_net"].cummax()
-    df["hwm"] = df[["hwm", "initial_HWM"]].max(axis=1)
+    df["hwm"] = df[["hwm", "initial_hwm"]].max(axis=1)
 
-    # Profit above HWM that is eligible for comp (hurdle + prior-year loss first).
+    # Profit above HWM that is eligible for comp (hurdle + loss carryforward first).
     df["profit_above"] = (
-        df["hwm"] - df["initial_HWM"] - df["hurdle_amt"] - df["loss_carryforward"]
+        df["hwm"] - df["initial_hwm"] - df["hurdle_amt"] - df["loss_carryforward"]
     ).clip(lower=0)
 
     tiers = cfg.get("comp_tiers") or _FLAT_TIERS

@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.engine import attribution, payoff
+from tests.conftest import pms_df
 
 
 def test_netting_cost_offsetting_pods(simple_cfg):
@@ -15,7 +16,7 @@ def test_netting_cost_offsetting_pods(simple_cfg):
             "net_pnl": [100.0, -100.0],
         }
     )
-    pms = pd.DataFrame(simple_cfg["pms"])
+    pms = pms_df(simple_cfg)
     payoff_daily = payoff.compute_payoff(daily, pms, simple_cfg)
     total_comp = payoff.fund_total_comp(payoff_daily)
     assert total_comp == 20.0  # only PM_A accrues: 0.2 * 100
@@ -36,7 +37,7 @@ def test_netting_cost_zero_when_no_offset(simple_cfg):
             "net_pnl": [100.0, 100.0],
         }
     )
-    pms = pd.DataFrame(simple_cfg["pms"])
+    pms = pms_df(simple_cfg)
     total_comp = payoff.fund_total_comp(payoff.compute_payoff(daily, pms, simple_cfg))
     fund_net = 200.0
     assert total_comp == 40.0
@@ -57,7 +58,7 @@ def test_cost_by_type():
 def test_risk_return_includes_sharpe(simple_cfg):
     """risk_return now exposes sharpe = annual_return / annual_vol."""
     import numpy as np
-    pms = pd.DataFrame(simple_cfg["pms"])
+    pms = pms_df(simple_cfg)
     n = 252
     dates = pd.date_range("2025-01-02", periods=n, freq="B")
     # PM_A: daily net = +0.5 (constant -> vol=0 -> sharpe NaN handled)

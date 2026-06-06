@@ -11,11 +11,11 @@ def test_build_position_frame_mtm(two_day_positions):
     pf = pnl.build_position_frame(prices, positions)
 
     day2 = pf[pf["date"] == pd.Timestamp("2024-01-02")].iloc[0]
-    # qty_{t-1}=10, price change = 110-100 = 10  ->  gross_pnl = 100
+    # quantity_{t-1}=10, price change = 110-100 = 10  ->  gross_pnl = 100
     assert day2["gross_pnl"] == 100.0
-    # gross exposure = |prev_qty * prev_price| = 10 * 100 = 1000
+    # gross exposure = |prev_quantity * prev_price| = 10 * 100 = 1000
     assert day2["gross_exposure"] == 1000.0
-    # long book -> no short notional; qty unchanged -> no traded notional
+    # long book -> no short notional; quantity unchanged -> no traded notional
     assert day2["short_notional"] == 0.0
     assert day2["traded_notional"] == 0.0
     # first day has no prior mark -> zero pnl
@@ -25,9 +25,9 @@ def test_build_position_frame_mtm(two_day_positions):
 
 def test_short_position_metrics():
     dates = pd.to_datetime(["2024-01-01", "2024-01-02"])
-    prices = pd.DataFrame({"date": list(dates), "ticker": ["S", "S"], "price": [50.0, 40.0]})
+    prices = pd.DataFrame({"date": list(dates), "ticker": ["S", "S"], "close_price": [50.0, 40.0]})
     positions = pd.DataFrame(
-        {"date": list(dates), "pm_id": ["P", "P"], "ticker": ["S", "S"], "qty": [-20.0, -20.0]}
+        {"date": list(dates), "pm_id": ["P", "P"], "ticker": ["S", "S"], "quantity": [-20.0, -20.0]}
     )
     pf = pnl.build_position_frame(prices, positions)
     day2 = pf[pf["date"] == dates[1]].iloc[0]
@@ -39,13 +39,13 @@ def test_short_position_metrics():
 
 def test_traded_notional_on_turnover():
     dates = pd.to_datetime(["2024-01-01", "2024-01-02"])
-    prices = pd.DataFrame({"date": list(dates), "ticker": ["T", "T"], "price": [10.0, 10.0]})
+    prices = pd.DataFrame({"date": list(dates), "ticker": ["T", "T"], "close_price": [10.0, 10.0]})
     positions = pd.DataFrame(
-        {"date": list(dates), "pm_id": ["P", "P"], "ticker": ["T", "T"], "qty": [5.0, 8.0]}
+        {"date": list(dates), "pm_id": ["P", "P"], "ticker": ["T", "T"], "quantity": [5.0, 8.0]}
     )
     pf = pnl.build_position_frame(prices, positions)
     day2 = pf[pf["date"] == dates[1]].iloc[0]
-    # |8 - 5| * price(10) = 30
+    # |8 - 5| * close_price(10) = 30
     assert day2["traded_notional"] == 30.0
 
 

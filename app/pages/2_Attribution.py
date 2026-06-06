@@ -22,7 +22,7 @@ pm_net_daily = results["pm_net_daily"]
 pf = results["position_frame"]
 instruments = results["instruments"]
 aum = results["aum"]
-pod_name = pods.set_index("pod_id")["name"].to_dict()
+pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 
 page_header("Attribution", "Decompose fund PnL by pod, strategy, and position — and see where costs and losses sit.")
@@ -118,7 +118,7 @@ cost_key_label = st.radio("Break costs down by", ["Strategy Pod", "Team", "PM"],
 cost_key = {"Strategy Pod": "pod_id", "Team": "team_id", "PM": "pm_id"}[cost_key_label]
 ctab = attribution.cost_table_by(pm_net_daily, pms, cost_key)
 label_map = {"pod_id": pod_name, "team_id": team_name,
-             "pm_id": pms.set_index("pm_id")["name"].to_dict()}[cost_key]
+             "pm_id": pms.set_index("pm_id")["pm_name"].to_dict()}[cost_key]
 ctab["Name"] = ctab[cost_key].map(label_map)
 
 present_cost_cols = [c for c in ["financing", "borrow", "commission", "fx", "center"] if c in ctab.columns]
@@ -151,18 +151,18 @@ with c4:
 section("Risk vs Return by PM")
 rr = attribution.risk_return(pm_net_daily, pms)
 tooltip = [
-    alt.Tooltip("name:N", title="PM"),
+    alt.Tooltip("pm_name:N", title="PM"),
     alt.Tooltip("annual_return:Q", format=".1%", title="Return on Capital"),
     alt.Tooltip("annual_vol:Q", format=".1%", title="Annualized Volatility"),
     alt.Tooltip("sharpe:Q", format=".2f", title="Sharpe Ratio"),
 ]
 st.altair_chart(
     charts.scatter(rr, "annual_vol", "annual_return",
-                   color_field="name", tooltip=tooltip,
+                   color_field="pm_name", tooltip=tooltip,
                    height=400,
                    x_title="Annualized Volatility",
                    y_title="Annualized Return on Capital",
-                   label_field="name",
+                   label_field="pm_name",
                    slope1_line=True,
                    title="Risk vs Return by PM"),
     width="stretch",

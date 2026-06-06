@@ -41,8 +41,8 @@ def center_cost_total(cfg: dict) -> float:
 def allocate_center_cost(cfg: dict, pms: pd.DataFrame) -> pd.DataFrame:
     """Per-PM center cost allocation by AUM share (pass-through, not display-only)."""
     total = center_cost_total(cfg)
-    cap = pms["allocated_capital"]
-    out = pms[["pm_id", "allocated_capital"]].copy()
+    cap = pms["pm_aum"]
+    out = pms[["pm_id", "pm_aum"]].copy()
     out["center_cost_alloc"] = total * cap / cap.sum()
     return out
 

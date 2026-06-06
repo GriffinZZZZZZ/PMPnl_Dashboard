@@ -190,12 +190,26 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     positions = generate_positions(cfg, pms, instruments, prices, dates, rng)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Rename columns to match DB schema (generation functions use short internal names).
+    pods_db = pods.rename(columns={"name": "pod_name", "allocated_capital": "pod_aum"})
+
+    pms_db = pd.DataFrame(cfg["pms"]).copy()
+    pms_db["loss_carryforward"] = (-pms_db["prior_year_pnl"]).clip(lower=0)
+    pms_db = pms_db.rename(columns={
+        "name": "pm_name", "allocated_capital": "pm_aum", "initial_HWM": "initial_hwm",
+    }).drop(columns=["prior_year_pnl"])
+
+    instruments_db = instruments.rename(columns={"idio_vol": "idiosyncratic_vol"})
+    prices_db      = prices.rename(columns={"price": "close_price"})
+    positions_db   = positions.rename(columns={"qty": "quantity"})
+
     tables = {
-        "pods": pods,
-        "pms": pms,
-        "instruments": instruments,
-        "prices": prices,
-        "positions": positions,
+        "strategy_pods":      pods_db,
+        "portfolio_managers": pms_db,
+        "security_master":    instruments_db,
+        "eod_prices":         prices_db,
+        "eod_positions":      positions_db,
     }
     write_database(tables, cfg)
     return tables

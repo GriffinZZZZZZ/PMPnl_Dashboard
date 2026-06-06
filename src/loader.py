@@ -38,17 +38,17 @@ except Exception:  # streamlit not installed
     _cache = _passthrough
 
 
-TABLES = ["pods", "pms", "instruments", "prices", "positions"]
+_DB_TABLES = ["strategy_pods", "portfolio_managers", "security_master", "eod_prices", "eod_positions"]
 
 
 @_cache(show_spinner=False)
 def load_all() -> dict[str, pd.DataFrame]:
-    """Load every table from ``data/pm_pnl.db`` into a dict of DataFrames."""
+    """Load engine tables from ``data/pm_pnl.db`` into a dict of DataFrames."""
     if not DB_PATH.exists():
         raise FileNotFoundError(
             f"Database not found at {DB_PATH}. Run `python run.py` first."
         )
-    return {t: read_table(t) for t in TABLES}
+    return {t: read_table(t) for t in _DB_TABLES}
 
 
 @_cache(show_spinner=False)
@@ -64,9 +64,11 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
     """
     cfg = load_config()
     raw = load_all()
-    pods, pms, instruments = raw["pods"], raw["pms"], raw["instruments"]
+    pods        = raw["strategy_pods"]
+    pms         = raw["portfolio_managers"]
+    instruments = raw["security_master"]
 
-    position_frame = pnl.build_position_frame(raw["prices"], raw["positions"], instruments)
+    position_frame = pnl.build_position_frame(raw["eod_prices"], raw["eod_positions"], instruments)
     pm_daily = pnl.pm_daily_gross(position_frame)
     pm_net_daily = costs.add_costs(pm_daily, cfg, pms)
 
@@ -96,7 +98,7 @@ def compute_all(payout_ratio_override: float | None = None) -> dict[str, Any]:
         "aum": econ["aum"],
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
-        "prices": raw["prices"],
+        "prices": raw["eod_prices"],
     }
 
 

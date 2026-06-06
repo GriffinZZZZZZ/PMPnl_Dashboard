@@ -38,7 +38,7 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
             ``[date, pm_id, gross_pnl, gross_exposure, short_notional,
               traded_notional, fx_notional]``.
         cfg: parsed config; reads ``cfg['costs']`` and ``cfg['center_cost']``.
-        pms: PM roster with ``[pm_id, allocated_capital]``.
+        pms: PM roster with ``[pm_id, pm_aum]``.
 
     Returns:
         Frame with added columns
@@ -46,7 +46,7 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
     """
     c = cfg["costs"]
     fund_cap = float(sum(p["allocated_capital"] for p in cfg["pods"]))
-    cap_map = pms.set_index("pm_id")["allocated_capital"].to_dict()
+    cap_map = pms.set_index("pm_id")["pm_aum"].to_dict()
 
     df = pm_daily.copy()
     df["financing"] = c["financing_rate"] * df["gross_exposure"] * DT

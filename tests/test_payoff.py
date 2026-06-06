@@ -17,11 +17,11 @@ TIERED = {
 }
 
 
-def _pms(payout_ratio=0.2, hurdle_rate=0.0, initial_hwm=0, cap=1000, prior_year_pnl=0):
+def _pms(payout_ratio=0.2, hurdle_rate=0.0, initial_hwm=0, cap=1000, loss_carryforward=0):
     return pd.DataFrame(
-        [{"pm_id": "P", "pod_id": "X", "name": "n", "allocated_capital": cap,
+        [{"pm_id": "P", "pod_id": "X", "pm_name": "n", "pm_aum": cap,
           "payout_ratio": payout_ratio, "hurdle_rate": hurdle_rate,
-          "initial_HWM": initial_hwm, "prior_year_pnl": prior_year_pnl}]
+          "initial_hwm": initial_hwm, "loss_carryforward": loss_carryforward}]
     )
 
 
@@ -72,6 +72,6 @@ def test_tiered_schedule_marginal_rates():
 
 def test_loss_carryforward_must_be_recovered_first():
     # Prior-year loss 500k must be earned back before comp accrues.
-    out = payoff.compute_payoff(_daily([300_000, 300_000]), _pms(prior_year_pnl=-500_000), TIERED)
+    out = payoff.compute_payoff(_daily([300_000, 300_000]), _pms(loss_carryforward=500_000), TIERED)
     # cum [300k, 600k]; profit_above = max(0, peak - 500k) = [0, 100k]
     assert list(out["accrued_comp"]) == [0.0, 20_000.0]  # 0 until recovered, then 0.2 * 100k

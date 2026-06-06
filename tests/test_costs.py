@@ -4,10 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.engine import costs
-
-
-def _pms_df(simple_cfg):
-    return pd.DataFrame(simple_cfg["pms"])
+from tests.conftest import pms_df as _pms_df
 
 
 def _pm_daily(pm_id="PM_A", gross_pnl=100.0, gross_exposure=1000.0,

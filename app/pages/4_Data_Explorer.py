@@ -52,42 +52,42 @@ with col2:
 section("Example Queries")
 
 EXAMPLES = {
-    "PM roster with pod & team names": "SELECT * FROM v_pm_roster ORDER BY pm_id;",
+    "PM hierarchy (roster with pod & team)": "SELECT * FROM vw_manager_hierarchy ORDER BY pm_id;",
     "Top 10 positions by NMV (latest date)": (
-        "SELECT pv.pm_id, pv.ticker, pv.qty, pv.price, pv.nmv\n"
-        "FROM v_position_value pv\n"
-        "WHERE pv.date = (SELECT MAX(date) FROM prices)\n"
+        "SELECT pv.pm_id, pv.ticker, pv.quantity, pv.close_price, pv.nmv\n"
+        "FROM vw_mtm_positions pv\n"
+        "WHERE pv.date = (SELECT MAX(date) FROM eod_prices)\n"
         "ORDER BY ABS(pv.nmv) DESC\n"
         "LIMIT 10;"
     ),
     "Daily trade count by PM": (
-        "SELECT pm_id, date, COUNT(*) AS trades, SUM(notional) AS total_notional\n"
-        "FROM trades\n"
+        "SELECT pm_id, date, COUNT(*) AS trades, SUM(trade_notional) AS total_notional\n"
+        "FROM trade_blotter\n"
         "GROUP BY pm_id, date\n"
         "ORDER BY date DESC\n"
         "LIMIT 20;"
     ),
     "Price history for one instrument": (
-        "SELECT date, price FROM prices\n"
-        "WHERE ticker = (SELECT ticker FROM instruments LIMIT 1)\n"
+        "SELECT date, close_price FROM eod_prices\n"
+        "WHERE ticker = (SELECT ticker FROM security_master LIMIT 1)\n"
         "ORDER BY date;"
     ),
     "Instrument count by asset class": (
         "SELECT asset_class, COUNT(*) AS n_instruments\n"
-        "FROM instruments\n"
+        "FROM security_master\n"
         "GROUP BY asset_class\n"
         "ORDER BY n_instruments DESC;"
     ),
     "BUY vs SELL volume by PM": (
-        "SELECT pm_id, side, COUNT(*) AS trade_count, SUM(notional) AS total_notional\n"
-        "FROM trades\n"
+        "SELECT pm_id, side, COUNT(*) AS trade_count, SUM(trade_notional) AS total_notional\n"
+        "FROM trade_blotter\n"
         "GROUP BY pm_id, side\n"
         "ORDER BY pm_id, side;"
     ),
 }
 
 chosen = st.selectbox("Load an example query", ["(type your own)"] + list(EXAMPLES.keys()))
-default_sql = EXAMPLES.get(chosen, "SELECT * FROM v_pm_roster LIMIT 20;")
+default_sql = EXAMPLES.get(chosen, "SELECT * FROM vw_manager_hierarchy LIMIT 20;")
 
 # ---- SQL console -------------------------------------------------------------
 section("Run SQL")

@@ -19,7 +19,7 @@ setup_page("Incentive Compensation Accrual", "💰")
 results = compute_all()
 cfg = results["cfg"]
 pms, pods = results["pms"], results["pods"]
-pod_name = pods.set_index("pod_id")["name"].to_dict()
+pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in cfg["teams"]}
 
 page_header(
@@ -56,7 +56,7 @@ st.markdown(
 )
 
 comp_pm = results["total_comp_by_pm"].merge(
-    pms[["pm_id", "name", "pod_id", "team_id", "payout_ratio"]], on="pm_id"
+    pms[["pm_id", "pm_name", "pod_id", "team_id", "payout_ratio"]], on="pm_id"
 )
 comp_pm["Pod"] = comp_pm["pod_id"].map(pod_name)
 comp_pm["Team"] = comp_pm["team_id"].map(team_name)
@@ -78,8 +78,8 @@ with c3:
     tbl["Base Rate"] = tbl["payout_ratio"] * 100
     tbl["Eff. Rate"] = tbl["Effective Rate"] * 100
     tbl["Comp ($M)"] = tbl["total_comp"] / 1e6
-    show = tbl[["name", "Pod", "Base Rate", "Eff. Rate", "Comp ($M)"]].rename(
-        columns={"name": "PM"}).sort_values("Comp ($M)", ascending=False)
+    show = tbl[["pm_name", "Pod", "Base Rate", "Eff. Rate", "Comp ($M)"]].rename(
+        columns={"pm_name": "PM"}).sort_values("Comp ($M)", ascending=False)
     st.dataframe(
         show, hide_index=True, width="stretch", height=280,
         column_config={

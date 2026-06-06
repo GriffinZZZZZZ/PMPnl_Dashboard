@@ -4,6 +4,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.engine import economics
+from tests.conftest import pms_df
 
 
 def test_investor_net_is_fund_net_minus_comp(simple_cfg):
@@ -28,7 +29,7 @@ def test_center_cost_accrues_over_partial_period(simple_cfg):
 
 
 def test_center_cost_allocation_prorata(simple_cfg):
-    pms = pd.DataFrame(simple_cfg["pms"])
+    pms = pms_df(simple_cfg)
     alloc = economics.allocate_center_cost(simple_cfg, pms)
     # equal capital -> 20 split evenly = 10 each
     assert sorted(alloc["center_cost_alloc"].round(6)) == [10.0, 10.0]

@@ -19,9 +19,9 @@ results = compute_all()
 pms, pods = results["pms"], results["pods"]
 pm_net_daily = results["pm_net_daily"]
 payoff = results["payoff_daily"]
-pod_name = pods.set_index("pod_id")["name"].to_dict()
+pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
-pm_label = pms.set_index("pm_id")["name"].to_dict()
+pm_label = pms.set_index("pm_id")["pm_name"].to_dict()
 
 page_header("Pod & PM Drill-down", "Inspect any pod or PM: performance, cost bridge, attribution, and comp.")
 
@@ -65,7 +65,7 @@ sel_payoff = payoff[payoff["pm_id"].isin(sel_pms)]
 gross = float(sel_daily["gross_pnl"].sum())
 net = float(sel_daily["net_pnl"].sum())
 comp = float(results["total_comp_by_pm"].set_index("pm_id").loc[sel_pms, "total_comp"].sum())
-cap = float(pms.set_index("pm_id").loc[sel_pms, "allocated_capital"].sum())
+cap = float(pms.set_index("pm_id").loc[sel_pms, "pm_aum"].sum())
 kpi_row([
     kpi_card("Allocated Capital", fmt_money(cap)),
     kpi_card("Gross PnL", fmt_money(gross), "before costs", "up" if gross >= 0 else "down"),

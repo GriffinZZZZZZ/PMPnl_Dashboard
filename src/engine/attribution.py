@@ -61,10 +61,10 @@ def pnl_by_group(
 
     Returns ``[<key>, gross_pnl, net_pnl, capital, return_on_capital]`` sorted by net.
     """
-    roster = pms[["pm_id", key, "allocated_capital"]].drop_duplicates("pm_id")
+    roster = pms[["pm_id", key, "pm_aum"]].drop_duplicates("pm_id")
     df = pm_net_daily.merge(roster[["pm_id", key]], on="pm_id", how="left")
     out = df.groupby(key, as_index=False)[["gross_pnl", "net_pnl"]].sum()
-    cap = roster.groupby(key)["allocated_capital"].sum()
+    cap = roster.groupby(key)["pm_aum"].sum()
     out["capital"] = out[key].map(cap)
     out["return_on_capital"] = out["net_pnl"] / out["capital"]
     return out.sort_values("net_pnl", ascending=False).reset_index(drop=True)
@@ -105,7 +105,7 @@ def cost_table_by(pm_net_daily: pd.DataFrame, pms: pd.DataFrame, key: str = "pod
     # cost/gross: only defined when gross > 0 (losers show NaN -> "n/a" in UI)
     g["cost_ratio"] = g["total_cost"] / g["gross_pnl"].where(g["gross_pnl"] > 0)
     # cost/capital: always defined (use for sorting when gross is negative)
-    cap_map = pms.groupby(key)["allocated_capital"].sum() if key != "pm_id" else pms.set_index("pm_id")["allocated_capital"]
+    cap_map = pms.groupby(key)["pm_aum"].sum() if key != "pm_id" else pms.set_index("pm_id")["pm_aum"]
     g["capital"] = g[key].map(cap_map)
     g["cost_pct_capital"] = g["total_cost"] / g["capital"]
     return g.sort_values("total_cost", ascending=False).reset_index(drop=True)
@@ -125,9 +125,9 @@ def position_table(
     avg_expo = (
         pf.groupby(["date", "ticker"])["gross_exposure"].sum().groupby("ticker").mean()
     )
-    name = pms.set_index("pm_id")["name"]
+    pm_name = pms.set_index("pm_id")["pm_name"]
     holders = pf.groupby("ticker")["pm_id"].apply(
-        lambda s: ", ".join(sorted(name.reindex(s.unique()).dropna().astype(str)))
+        lambda s: ", ".join(sorted(pm_name.reindex(s.unique()).dropna().astype(str)))
     )
     strat = instruments.set_index("ticker")["strategy_tag"]
     out = pd.DataFrame({"ticker": pnl.index})
@@ -175,7 +175,7 @@ def risk_return(pm_net_daily: pd.DataFrame, pms: pd.DataFrame) -> pd.DataFrame:
     meta = pms.set_index("pm_id")
     rows = []
     for pm_id, g in pm_net_daily.groupby("pm_id"):
-        cap = meta.loc[pm_id, "allocated_capital"]
+        cap = meta.loc[pm_id, "pm_aum"]
         daily_ret = g["net_pnl"] / cap
         annual_ret = float(g["net_pnl"].sum() / cap)
         annual_vol = float(daily_ret.std(ddof=0) * np.sqrt(TRADING_DAYS))
@@ -183,7 +183,7 @@ def risk_return(pm_net_daily: pd.DataFrame, pms: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             {
                 "pm_id": pm_id,
-                "name": meta.loc[pm_id, "name"],
+                "pm_name": meta.loc[pm_id, "pm_name"],
                 "pod_id": meta.loc[pm_id, "pod_id"],
                 "annual_return": annual_ret,
                 "annual_vol": annual_vol,
@@ -207,10 +207,10 @@ def concentration_table(
     """
     last_date = position_frame["date"].max()
     last = position_frame[position_frame["date"] == last_date].copy()
-    last_price = prices[prices["date"] == last_date].set_index("ticker")["price"]
-    last["nmv"] = last["qty"] * last["ticker"].map(last_price).fillna(0.0)
+    last_price = prices[prices["date"] == last_date].set_index("ticker")["close_price"]
+    last["nmv"] = last["quantity"] * last["ticker"].map(last_price).fillna(0.0)
     nmv = last.groupby("ticker")["nmv"].sum()
-    pm_name = pms.set_index("pm_id")["name"]
+    pm_name = pms.set_index("pm_id")["pm_name"]
     holders = (
         last.groupby("ticker")["pm_id"]
         .apply(lambda s: ", ".join(sorted(pm_name.reindex(s.unique()).dropna().astype(str))))

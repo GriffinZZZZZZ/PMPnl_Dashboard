@@ -16,84 +16,86 @@ from src.config import DB_PATH
 _DDL = """
 PRAGMA foreign_keys = ON;
 
-CREATE TABLE IF NOT EXISTS pods (
-    pod_id          TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    strategy_type   TEXT,
-    allocated_capital REAL
+CREATE TABLE IF NOT EXISTS strategy_pods (
+    pod_id        TEXT PRIMARY KEY,
+    pod_name      TEXT NOT NULL,
+    strategy_type TEXT,
+    pod_aum       REAL
 );
 
-CREATE TABLE IF NOT EXISTS teams (
-    team_id TEXT PRIMARY KEY,
-    name    TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS investment_teams (
+    team_id   TEXT PRIMARY KEY,
+    team_name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS pms (
+CREATE TABLE IF NOT EXISTS portfolio_managers (
     pm_id             TEXT PRIMARY KEY,
-    pod_id            TEXT NOT NULL REFERENCES pods(pod_id),
-    team_id           TEXT NOT NULL REFERENCES teams(team_id),
-    name              TEXT NOT NULL,
-    allocated_capital REAL,
+    pod_id            TEXT NOT NULL REFERENCES strategy_pods(pod_id),
+    team_id           TEXT NOT NULL REFERENCES investment_teams(team_id),
+    pm_name           TEXT NOT NULL,
+    pm_aum            REAL,
     payout_ratio      REAL,
     hurdle_rate       REAL,
-    initial_HWM       REAL,
+    initial_hwm       REAL,
     skill             REAL,
-    prior_year_pnl    REAL
+    loss_carryforward REAL
+    -- NOTE: ticker is used as PK in security_master (acceptable for MVP with
+    -- synthetic, stable tickers). In production use ISIN/CUSIP + surrogate key.
 );
 
-CREATE TABLE IF NOT EXISTS instruments (
-    ticker       TEXT PRIMARY KEY,
-    asset_class  TEXT,
-    sector       TEXT,
-    strategy_tag TEXT,
-    beta         REAL,
-    alpha        REAL,
-    idio_vol     REAL
+CREATE TABLE IF NOT EXISTS security_master (
+    ticker           TEXT PRIMARY KEY,
+    asset_class      TEXT,
+    sector           TEXT,
+    strategy_tag     TEXT,
+    beta             REAL,
+    alpha            REAL,
+    idiosyncratic_vol REAL
 );
 
-CREATE TABLE IF NOT EXISTS prices (
-    date   TEXT NOT NULL,
-    ticker TEXT NOT NULL REFERENCES instruments(ticker),
-    price  REAL NOT NULL,
+CREATE TABLE IF NOT EXISTS eod_prices (
+    date        TEXT NOT NULL,
+    ticker      TEXT NOT NULL REFERENCES security_master(ticker),
+    close_price REAL NOT NULL,
     PRIMARY KEY (date, ticker)
 );
 
-CREATE TABLE IF NOT EXISTS positions (
-    date   TEXT NOT NULL,
-    pm_id  TEXT NOT NULL REFERENCES pms(pm_id),
-    ticker TEXT NOT NULL REFERENCES instruments(ticker),
-    qty    REAL NOT NULL,
+CREATE TABLE IF NOT EXISTS eod_positions (
+    date     TEXT NOT NULL,
+    pm_id    TEXT NOT NULL REFERENCES portfolio_managers(pm_id),
+    ticker   TEXT NOT NULL REFERENCES security_master(ticker),
+    quantity REAL NOT NULL,
     PRIMARY KEY (date, pm_id, ticker)
 );
 
-CREATE TABLE IF NOT EXISTS trades (
-    trade_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-    date       TEXT    NOT NULL,
-    pm_id      TEXT    NOT NULL REFERENCES pms(pm_id),
-    ticker     TEXT    NOT NULL REFERENCES instruments(ticker),
-    side       TEXT    NOT NULL,
-    qty_change REAL    NOT NULL,
-    price      REAL    NOT NULL,
-    notional   REAL    NOT NULL
+CREATE TABLE IF NOT EXISTS trade_blotter (
+    trade_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    date            TEXT    NOT NULL,
+    pm_id           TEXT    NOT NULL REFERENCES portfolio_managers(pm_id),
+    ticker          TEXT    NOT NULL REFERENCES security_master(ticker),
+    side            TEXT    NOT NULL,
+    quantity_delta  REAL    NOT NULL,
+    execution_price REAL    NOT NULL,
+    trade_notional  REAL    NOT NULL
 );
 
-CREATE VIEW IF NOT EXISTS v_pm_roster AS
+CREATE VIEW IF NOT EXISTS vw_manager_hierarchy AS
 SELECT
-    p.pm_id, p.name, p.allocated_capital, p.payout_ratio,
-    p.hurdle_rate, p.initial_HWM, p.skill, p.prior_year_pnl,
-    pod.pod_id, pod.name      AS pod_name, pod.strategy_type,
-    t.team_id,  t.name        AS team_name
-FROM pms p
-JOIN pods  pod ON p.pod_id  = pod.pod_id
-JOIN teams t   ON p.team_id = t.team_id;
+    p.pm_id, p.pm_name, p.pm_aum, p.payout_ratio,
+    p.hurdle_rate, p.initial_hwm, p.skill, p.loss_carryforward,
+    pod.pod_id,  pod.pod_name,  pod.strategy_type,
+    t.team_id,   t.team_name
+FROM portfolio_managers p
+JOIN strategy_pods      pod ON p.pod_id  = pod.pod_id
+JOIN investment_teams   t   ON p.team_id = t.team_id;
 
-CREATE VIEW IF NOT EXISTS v_position_value AS
+CREATE VIEW IF NOT EXISTS vw_mtm_positions AS
 SELECT
-    pos.date, pos.pm_id, pos.ticker, pos.qty,
-    pr.price,
-    pos.qty * pr.price AS nmv
-FROM positions pos
-JOIN prices pr ON pos.date = pr.date AND pos.ticker = pr.ticker;
+    pos.date, pos.pm_id, pos.ticker, pos.quantity,
+    pr.close_price,
+    pos.quantity * pr.close_price AS nmv
+FROM eod_positions pos
+JOIN eod_prices pr ON pos.date = pr.date AND pos.ticker = pr.ticker;
 """
 
 
@@ -105,19 +107,21 @@ def connect(path: str | Path = DB_PATH) -> sqlite3.Connection:
 
 
 def _derive_trades(positions: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame:
-    """Derive an OMS-style trade log from day-over-day qty changes."""
+    """Derive an OMS-style trade log from day-over-day quantity changes."""
     pos = positions.sort_values(["pm_id", "ticker", "date"])
-    pos["qty_prev"] = pos.groupby(["pm_id", "ticker"])["qty"].shift(1)
-    changed = pos[pos["qty_prev"].notna() & (pos["qty"] != pos["qty_prev"])].copy()
-    changed["qty_change"] = changed["qty"] - changed["qty_prev"]
+    pos["_qty_prev"] = pos.groupby(["pm_id", "ticker"])["quantity"].shift(1)
+    changed = pos[pos["_qty_prev"].notna() & (pos["quantity"] != pos["_qty_prev"])].copy()
+    changed["quantity_delta"] = changed["quantity"] - changed["_qty_prev"]
 
-    price_map = prices.set_index(["date", "ticker"])["price"]
-    changed["price"] = changed.set_index(["date", "ticker"]).index.map(price_map)
-    changed = changed.dropna(subset=["price"])
+    price_map = prices.set_index(["date", "ticker"])["close_price"]
+    changed["execution_price"] = changed.set_index(["date", "ticker"]).index.map(price_map)
+    changed = changed.dropna(subset=["execution_price"])
 
-    changed["side"] = changed["qty_change"].apply(lambda x: "BUY" if x > 0 else "SELL")
-    changed["notional"] = changed["qty_change"].abs() * changed["price"]
-    return changed[["date", "pm_id", "ticker", "side", "qty_change", "price", "notional"]].reset_index(drop=True)
+    changed["side"] = changed["quantity_delta"].apply(lambda x: "BUY" if x > 0 else "SELL")
+    changed["trade_notional"] = changed["quantity_delta"].abs() * changed["execution_price"]
+    return changed[
+        ["date", "pm_id", "ticker", "side", "quantity_delta", "execution_price", "trade_notional"]
+    ].reset_index(drop=True)
 
 
 def write_database(
@@ -135,27 +139,27 @@ def write_database(
         db_path.unlink()
 
     conn = connect(db_path)
-    # Create all tables and views via DDL.
     conn.executescript(_DDL)
     conn.commit()
 
-    # Teams come from config (not generated as a DataFrame).
-    teams_df = pd.DataFrame(cfg["teams"])[["team_id", "name"]]
-
-    # Write tables in FK-dependency order.
-    write_order = [
-        ("pods",        tables["pods"]),
-        ("teams",       teams_df),
-        ("pms",         tables["pms"]),
-        ("instruments", tables["instruments"]),
-        ("prices",      tables["prices"]),
-        ("positions",   tables["positions"]),
+    # investment_teams comes from config; not a generated DataFrame.
+    teams_df = pd.DataFrame(cfg["teams"]).rename(columns={"name": "team_name"})[
+        ["team_id", "team_name"]
     ]
-    for name, df in write_order:
-        _write_table(conn, name, df)
 
-    trades = _derive_trades(tables["positions"], tables["prices"])
-    _write_table(conn, "trades", trades)
+    write_order = [
+        ("strategy_pods",       tables["strategy_pods"]),
+        ("investment_teams",    teams_df),
+        ("portfolio_managers",  tables["portfolio_managers"]),
+        ("security_master",     tables["security_master"]),
+        ("eod_prices",          tables["eod_prices"]),
+        ("eod_positions",       tables["eod_positions"]),
+    ]
+    for tbl_name, df in write_order:
+        _write_table(conn, tbl_name, df)
+
+    trades = _derive_trades(tables["eod_positions"], tables["eod_prices"])
+    _write_table(conn, "trade_blotter", trades)
 
     conn.commit()
     conn.close()

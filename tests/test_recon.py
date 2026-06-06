@@ -4,10 +4,11 @@ from __future__ import annotations
 import pandas as pd
 
 from src.engine import economics, payoff, recon
+from tests.conftest import pms_df
 
 
 def _results(simple_cfg):
-    pms = pd.DataFrame(simple_cfg["pms"])
+    pms = pms_df(simple_cfg)
     # center daily for PM_A (cap=1000, AUM=2000): annual=20, daily=20/252, split 50% -> 10/252
     center_a = 10.0 / 252
     center_b = 10.0 / 252
