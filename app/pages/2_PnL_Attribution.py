@@ -84,23 +84,23 @@ st.markdown(
     unsafe_allow_html=True,
 )
 income = results["eod_income"]
-inc_left, inc_right = st.columns([3, 2])
-with inc_left:
-    by_cat = (income.groupby("category", as_index=False)["amount"].sum()
-              .sort_values("amount", ascending=False))
-    st.altair_chart(
-        charts.bar(by_cat, "category", "amount", diverging=True, height=300,
-                   title="Non-trading Income by Category", val_title="Amount (USD)"),
-        width="stretch",
-    )
-with inc_right:
-    st.markdown(
-        f'<div class="callout">Trading PnL <span class="big">{fmt_money(results["fund_trading"])}</span> '
-        f'+ Non-trading PnL <b>{fmt_money(results["fund_non_trading"])}</b> '
-        f'= Gross PnL <b>{fmt_money(results["fund_gross"])}</b>.</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(f"{len(income):,} non-trading events across the selected period.")
+
+# Summary metrics row: Trading | Non-trading | Gross
+m1, m2, m3, *_ = st.columns(4)
+m1.metric("Trading PnL",     fmt_money(results["fund_trading"]))
+m2.metric("Non-trading PnL", fmt_money(results["fund_non_trading"]),
+          help=f"{len(income):,} one-off events this period")
+m3.metric("= Gross PnL",     fmt_money(results["fund_gross"]))
+
+# Horizontal bar — long category names are far more readable on the y-axis
+by_cat = (income.groupby("category", as_index=False)["amount"].sum()
+          .sort_values("amount", ascending=False))
+st.altair_chart(
+    charts.bar(by_cat, "category", "amount", diverging=True,
+               horizontal=True, height=220,
+               val_title="Amount (USD)"),
+    width="stretch",
+)
 
 # ---- Top / bottom PnL positions + concentration ----------------------------
 section("Position Analysis")
