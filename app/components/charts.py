@@ -313,7 +313,10 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
                      ratio_title: str = "Cost / Gross") -> alt.Chart:
     """Stacked bars (financing/borrow/commission/fx/center) + Cost/Gross point on 2nd axis."""
     p = colors()
-    cost_colors = [p["accent2"], p["bad"], p["warn"], p["accent"], p["muted"]][:len(cost_cols)]
+    # Six hues: blue, red, amber, purple (scheme[3]), green, orange (scheme[1]).
+    # Adjacent colors are maximally different so the stacked segments are easy to tell apart.
+    _cost_palette = [p["accent2"], p["bad"], p["warn"], p["scheme"][3], p["good"], p["scheme"][1]]
+    cost_colors = _cost_palette[:len(cost_cols)]
     long = df[[cat] + cost_cols].melt(id_vars=cat, var_name="Cost Type", value_name="Cost")
     domain = cost_cols
     stacked = (
@@ -431,9 +434,9 @@ def show_sweep(
     # Slider line: solid accent = selected ratio (only when different from baseline).
     if selected_x is not None and abs(selected_x - current_x) > 1e-6:
         sel_df = pd.DataFrame({x: [selected_x], "value": [ymin]})
-        sel_rule = alt.Chart(sel_df).mark_rule(color=p["accent"], size=2.5).encode(x=f"{x}:Q")
+        sel_rule = alt.Chart(sel_df).mark_rule(color=p["good"], size=2.5).encode(x=f"{x}:Q")
         sel_label = alt.Chart(sel_df).mark_text(
-            text=f"selected {selected_x:.0%}", color=p["accent"], align="left", dx=6, baseline="bottom",
+            text=f"selected {selected_x:.0%}", color=p["good"], align="left", dx=6, baseline="bottom",
             fontWeight=600, font=SANS,
         ).encode(x=f"{x}:Q", y="value:Q")
         layers.extend([sel_rule, sel_label])
