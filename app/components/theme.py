@@ -68,7 +68,7 @@ _CSS = """
   gap: 10px; margin: .2rem 0 1.0rem 0; }
 .kpi-card { background: var(--st-secondary-background-color); border: 1px solid var(--st-border-color);
   border-radius: var(--st-base-radius, 12px); padding: 14px 15px; box-shadow: 0 6px 18px rgba(0,0,0,0.16); }
-.kpi-card .label { color: var(--st-gray-color, #8A94A8); font-size: .72rem; text-transform: uppercase;
+.kpi-card .label { color: var(--st-gray-color, #8A94A8); font-size: .78rem; text-transform: uppercase;
   letter-spacing: .08em; font-weight: 600; }
 .kpi-card .value { font-family: var(--st-code-font); font-size: 1.5rem; font-weight: 600;
   margin-top: .3rem; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--st-text-color); }

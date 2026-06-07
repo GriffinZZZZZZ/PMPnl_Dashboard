@@ -43,7 +43,7 @@ def render_date_filter(first_date, last_date) -> None:
             min_value=first, max_value=last, key="_df_to",
         )
         if d_from > d_to:
-            st.sidebar.warning("'From' must be before 'To'.")
+            st.warning("'From' must be before 'To' — reset to single day.", icon="⚠️")
             d_from = d_to
         st.session_state["date_from"] = str(d_from)
         st.session_state["date_to"]   = str(d_to)
