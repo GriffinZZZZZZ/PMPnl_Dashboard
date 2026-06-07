@@ -176,14 +176,11 @@ tooltip = [
     alt.Tooltip("annual_vol:Q", format=".1%", title="Annualized Volatility"),
     alt.Tooltip("sharpe:Q", format=".2f", title="Sharpe Ratio"),
 ]
-st.altair_chart(
-    charts.scatter(rr, "annual_vol", "annual_return",
-                   color_field="pm_name", tooltip=tooltip,
-                   height=400,
-                   x_title="Annualized Volatility",
-                   y_title="Annualized Return on Capital",
-                   label_field="pm_name",
-                   slope1_line=True),
-    width="stretch",
-)
+charts.scatter(rr, "annual_vol", "annual_return",
+               color_field="pm_name", tooltip=tooltip,
+               height=400,
+               x_title="Annualized Volatility",
+               y_title="Annualized Return on Capital",
+               label_field="pm_name",
+               slope1_line=True)
 st.caption("Each point is a PM. Dashed line = Sharpe ratio 1.0 (return = vol). Points above the line have Sharpe > 1. Hover for Sharpe ratio.")

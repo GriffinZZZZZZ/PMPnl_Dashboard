@@ -77,8 +77,15 @@ def _zoom_filter(data: pd.DataFrame, x: str, key: str) -> pd.DataFrame:
 
 
 def _apply_zoom(event, key: str, x: str) -> None:
-    """Read the drag selection from a chart event, store it on change, offer Reset."""
+    """Read the drag selection from a chart event, store it on change, offer Reset.
+
+    Reset bumps a version counter so the chart widget gets a new Streamlit key on
+    the next render — this forces Altair to create a fresh widget with no residual
+    selection state, which is why the old ``st.session_state.pop`` alone was
+    unreliable (the stale event would immediately re-add the zoom range).
+    """
     zkey = f"zoom_{key}"
+    vkey = f"zoom_v_{key}"
     try:
         sel = (event.selection or {}).get("zoom") or {}
     except Exception:
@@ -90,8 +97,10 @@ def _apply_zoom(event, key: str, x: str) -> None:
             st.session_state[zkey] = rng
             st.rerun()
     if st.session_state.get(zkey) is not None:
-        st.button("⟲ Reset zoom", key=f"rz_{key}",
-                  on_click=lambda: st.session_state.pop(zkey, None))
+        def _do_reset():
+            st.session_state.pop(zkey, None)
+            st.session_state[vkey] = st.session_state.get(vkey, 0) + 1
+        st.button("Reset zoom", key=f"rz_{key}", on_click=_do_reset)
 
 
 def _xenc(x: str):
@@ -153,7 +162,8 @@ def show_line(
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
     chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
-    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
+    event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
@@ -213,7 +223,8 @@ def show_area(df: pd.DataFrame, val: str, *, key: str, x: str = "date", height: 
         tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=tooltip_fmt)],
     )
     chart = _cfg(alt.layer(area, selectors, rule).properties(height=height, title=title or ""), p)
-    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
+    event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _apply_zoom(event, key, x)
 
 
@@ -248,7 +259,8 @@ def show_stacked_area(
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
     chart = _cfg(alt.layer(areas, selectors, rule).properties(height=height, title=title or ""), p)
-    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
+    event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
@@ -276,7 +288,8 @@ def show_dual(df: pd.DataFrame, left: str, right: str, *, key: str, x: str = "da
                  alt.Tooltip(f"{right}:Q", format=".1%", title=right_title)])
     layered = (alt.layer(left_layer, right_layer, selectors, rule)
                .resolve_scale(y="independent").properties(height=height, title=title or ""))
-    event = st.altair_chart(_cfg(layered, p), key=key, on_select="rerun", selection_mode=["zoom"])
+    _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
+    event = st.altair_chart(_cfg(layered, p), key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _legend([(left_title, p["bad"]), (right_title, p["accent"])])
     _apply_zoom(event, key, x)
 
@@ -322,18 +335,26 @@ def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
 def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list,
             height: int = 380, x_title: str | None = None, y_title: str | None = None,
             x_fmt: str = ".0%", y_fmt: str = ".0%", title: str | None = None,
-            label_field: str | None = None, slope1_line: bool = False) -> alt.Chart:
-    """Scatter with per-point color, tooltips, optional PM labels, optional slope-1 line.
+            label_field: str | None = None, slope1_line: bool = False) -> None:
+    """Render a scatter with per-point color, centered HTML legend, tooltips, and optional
+    PM labels + Sharpe-1 reference line.
 
-    ``label_field``: column to show as a text label next to each point.
-    ``slope1_line``: if True, draw a dashed return=vol (Sharpe=1) reference line.
+    Renders directly (``st.altair_chart`` + ``_legend``) so the centered legend is
+    always below the chart regardless of series count.
+
+    ``label_field``: column for text labels next to each point.
+    ``slope1_line``: draw a dashed return=vol (Sharpe=1) reference line.
     """
     p = colors()
+    # Explicit domain+range so color order is predictable and matches the HTML legend.
+    values = sorted(df[color_field].dropna().unique().tolist())
+    palette = _CATEGORY20[: len(values)]
     base = alt.Chart(df)
     points = base.mark_circle(size=150, opacity=0.85, stroke=p["bg"], strokeWidth=1).encode(
         x=alt.X(f"{x}:Q", title=x_title, axis=alt.Axis(format=x_fmt, titleAnchor="middle")),
         y=alt.Y(f"{y}:Q", title=y_title, axis=alt.Axis(format=y_fmt, titleAnchor="middle")),
-        color=alt.Color(f"{color_field}:N", scale=alt.Scale(scheme="category20"), legend=None),
+        color=alt.Color(f"{color_field}:N",
+                        scale=alt.Scale(domain=values, range=palette), legend=None),
         tooltip=tooltip,
     )
     layers = [points]
@@ -342,7 +363,7 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
             x=alt.X(f"{x}:Q"), y=alt.Y(f"{y}:Q"),
             text=alt.Text(f"{label_field}:N"),
             color=alt.value(p["muted"]),
-            tooltip=alt.value(None),  # prevent duplicate tooltip from text layer
+            tooltip=alt.value(None),
         )
         layers.append(labels)
     if slope1_line:
@@ -352,8 +373,9 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
             strokeDash=[6, 4], color=p["muted"], opacity=0.5, size=1.5
         ).encode(x=f"{x}:Q", y=f"{y}:Q")
         layers.append(slope_line)
-    ch = alt.layer(*layers).properties(height=height, title=title or "")
-    return _cfg(ch, p, legend_bottom=False)
+    ch = _cfg(alt.layer(*layers).properties(height=height, title=title or ""), p, legend_bottom=False)
+    st.altair_chart(ch, use_container_width=True)
+    _legend([(v, palette[i]) for i, v in enumerate(values)])
 
 
 def bar_with_return(df: pd.DataFrame, cat: str, pnl_col: str, ret_col: str, *,
