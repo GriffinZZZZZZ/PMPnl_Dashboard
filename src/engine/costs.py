@@ -77,12 +77,19 @@ def add_costs(pm_daily: pd.DataFrame, cfg: dict, pms: pd.DataFrame) -> pd.DataFr
     df["net_pnl"]      = df["gross_pnl"] - df["trading_cost"]
 
     # --- Tier 2: overhead costs ---
-    df["center"] = df["pm_id"].map(
-        {pm: _center_daily(cfg, cap, fund_cap) for pm, cap in cap_map.items()}
-    )
-    df["capital_charge"] = df["pm_id"].map(
-        {pm: hurdle_map[pm] * cap_map[pm] * DT for pm in hurdle_map}
-    )
+    if "pm_aum" in df.columns:
+        # Time-varying path: loader injected per-row pm_aum from aum_history.
+        # center = bps × pm_aum × DT  (equivalent to annual_center × pm_share × DT)
+        center_bps = cfg["center_cost"]["bps_on_aum"] / 1e4
+        df["center"]         = center_bps * df["pm_aum"] * DT
+        df["capital_charge"] = df["pm_id"].map(hurdle_map) * df["pm_aum"] * DT
+    else:
+        df["center"] = df["pm_id"].map(
+            {pm: _center_daily(cfg, cap, fund_cap) for pm, cap in cap_map.items()}
+        )
+        df["capital_charge"] = df["pm_id"].map(
+            {pm: hurdle_map[pm] * cap_map[pm] * DT for pm in hurdle_map}
+        )
     df["overhead_cost"] = df["center"] + df["capital_charge"]
     df["eligible_pnl"]  = df["net_pnl"] - df["overhead_cost"]
 

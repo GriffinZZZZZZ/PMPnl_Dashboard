@@ -97,6 +97,33 @@ def test_fx_cost_only_on_fx_assets(simple_cfg):
     assert abs(out["fx"] - 0.2) < 1e-6
 
 
+def test_capital_charge_uses_pm_aum_column(simple_cfg):
+    """When pm_aum column is present, capital_charge scales with it (time-varying path)."""
+    from tests.conftest import pms_df
+    import copy
+    cfg = copy.deepcopy(simple_cfg)
+    cfg["pms"][0]["hurdle_rate"] = 0.252   # 0.252/252 = 0.001/day per unit of AUM
+    pms = pms_df(cfg)
+    # Two rows: same PM, different pm_aum values
+    df = pd.DataFrame({
+        "date":           pd.to_datetime(["2025-01-02", "2025-01-03"]),
+        "pm_id":          ["PM_A", "PM_A"],
+        "trading_pnl":    [100.0, 100.0],
+        "non_trading_pnl":[0.0, 0.0],
+        "gross_exposure": [1000.0, 2000.0],
+        "long_notional":  [1000.0, 2000.0],
+        "short_notional": [0.0, 0.0],
+        "traded_notional":[0.0, 0.0],
+        "fx_notional":    [0.0, 0.0],
+        "pm_aum":         [1000.0, 2000.0],   # time-varying
+    })
+    out = costs.add_costs(df, cfg, pms)
+    cc = out["capital_charge"].tolist()
+    # Row 0: 0.252 * 1000 / 252 = 1.0; Row 1: 0.252 * 2000 / 252 = 2.0
+    assert abs(cc[0] - 1.0) < 1e-6
+    assert abs(cc[1] - 2.0) < 1e-6
+
+
 def test_bridge_three_tier(simple_cfg):
     """Bridge sums: Gross→Net via trading costs, Net→Eligible via overhead."""
     pm_net = costs.add_costs(

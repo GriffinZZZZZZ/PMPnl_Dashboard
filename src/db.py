@@ -88,6 +88,13 @@ CREATE TABLE IF NOT EXISTS trade_blotter (
     trade_notional  REAL    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS aum_history (
+    date   TEXT NOT NULL,
+    pm_id  TEXT NOT NULL REFERENCES portfolio_managers(pm_id),
+    pm_aum REAL NOT NULL,
+    PRIMARY KEY (date, pm_id)
+);
+
 CREATE TABLE IF NOT EXISTS run_manifest (
     run_id       INTEGER PRIMARY KEY AUTOINCREMENT,
     run_at       TEXT    NOT NULL,
@@ -199,6 +206,7 @@ def write_database(
             ("eod_prices",          tables["eod_prices"]),
             ("eod_positions",       tables["eod_positions"]),
             ("eod_income",          tables["eod_income"]),
+            ("aum_history",         tables["aum_history"]),
         ]
         for tbl_name, df in write_order:
             _write_table(conn, tbl_name, df)

@@ -70,16 +70,40 @@ gross    = float(sel_daily["gross_pnl"].sum())
 net      = float(sel_daily["net_pnl"].sum())
 eligible = float(sel_daily["eligible_pnl"].sum())
 comp     = float(results["total_comp_by_pm"].set_index("pm_id").loc[sel_pms, "total_comp"].sum())
-cap      = float(pms.set_index("pm_id").loc[sel_pms, "pm_aum"].sum())
+# Use period-end AUM from aum_history if available; fall back to static roster.
+_pm_aum_hist = results["pm_aum_history"]
+if not _pm_aum_hist.empty:
+    cap = float(
+        _pm_aum_hist[_pm_aum_hist["pm_id"].isin(sel_pms)]
+        .sort_values("date").groupby("pm_id")["pm_aum"].last().sum()
+    )
+else:
+    cap = float(pms.set_index("pm_id").loc[sel_pms, "pm_aum"].sum())
 kpi_row([
     kpi_card("Allocated Capital", fmt_money(cap)),
     kpi_card("Gross PnL", fmt_money(gross), "trading + non-trading", "up" if gross >= 0 else "down"),
     kpi_card("Net PnL", fmt_money(net), "after trading costs", "up" if net >= 0 else "down"),
+    kpi_card("Return on AUM", fmt_pct(net / cap) if cap else "n/a",
+             "net PnL / allocated capital", "up" if net >= 0 else "down"),
     kpi_card("Eligible PnL", fmt_money(eligible),
              f"{fmt_pct(eligible/cap if cap else 0)} on capital",
              "up" if eligible >= 0 else "down"),
     kpi_card("Incentive Comp", fmt_money(comp), "accrued liability", "down", variant="cost"),
 ])
+
+# ---- PM AUM reallocation history --------------------------------------------
+_pm_aum_hist = results["pm_aum_history"]
+if not _pm_aum_hist.empty:
+    section(f"{title} — Allocated Capital Over Time")
+    pm_aum_df = (
+        _pm_aum_hist[_pm_aum_hist["pm_id"].isin(sel_pms)]
+        .pivot(index="date", columns="pm_id", values="pm_aum")
+        .rename(columns=pm_label)
+    )
+    pm_aum_df = pm_aum_df.reindex(sorted(pm_aum_df.columns), axis=1)
+    charts.show_line(pm_aum_df, key="pm_aum_ts", height=200,
+                     y_title="Allocated Capital (USD)")
+    st.caption("Capital reallocated monthly: top performers gain AUM, underperformers are cut. Fund-level AUM also reflects net investor flows.")
 
 # ---- equity curve — 3 tiers -------------------------------------------------
 section(f"{title} — Equity Curve")
@@ -89,9 +113,27 @@ charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)"
 dd_sel   = float(sel_payoff.assign(dd=lambda d: d["cum_net"] - d["hwm"])["dd"].min())
 cur_dd   = float(sel_payoff.sort_values("date").groupby("pm_id")[["cum_net", "hwm"]].last()
                  .eval("cum_net - hwm").sum())
+dd_series = (
+    sel_payoff.groupby("date")[["cum_net", "hwm"]].sum()
+    .sort_index()
+    .assign(Drawdown=lambda d: d["cum_net"] - d["hwm"])
+    [["Drawdown"]]
+)
+# Convert to percentage points (×100): values like -5.0 = 5% below HWM.
+dd_series_pct = dd_series.copy()
+if cap:
+    dd_series_pct["Drawdown"] = dd_series_pct["Drawdown"] / cap * 100
 dd_c1, dd_c2, *_ = st.columns(5)
-dd_c1.metric("Max Drawdown", fmt_money(dd_sel), help="Largest trough below HWM over the period")
-dd_c2.metric("Current Drawdown", fmt_money(cur_dd), help="Cumulative eligible vs HWM today")
+dd_c1.metric("Max Drawdown", fmt_pct(dd_sel / cap) if cap else "n/a",
+             help="Largest trough below HWM / allocated capital")
+dd_c2.metric("Current Drawdown", fmt_pct(cur_dd / cap) if cap else "n/a",
+             help="Current drawdown vs allocated capital")
+charts.show_area(dd_series_pct, "Drawdown", key="pod_dd",
+                 color=colors()["bad"], y_title="Drawdown (% of Capital)",
+                 height=200, y_fmt=",.2f", y_zero=False)
+st.caption("Drawdown = (cumulative eligible PnL − high-water mark) / allocated capital × 100. "
+           "0 means at or above HWM; deeper troughs indicate "
+           "ongoing loss carryforward against future comp accrual.")
 
 # ---- Gross → Net → Eligible → Investor bridge --------------------------------
 section("Trading → Gross → Net → Eligible → Investor Bridge")

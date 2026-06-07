@@ -39,40 +39,28 @@ c_left, c_right = st.columns(2)
 with c_left:
     pod_grp = attribution.pnl_by_group(pm_net_daily, pms, "pod_id")
     pod_grp["label"] = pod_grp["pod_id"].map(pod_name)
-    st.altair_chart(
-        charts.bar_with_return(pod_grp, "label", "net_pnl", "return_on_capital",
-                               height=340, title="Net PnL by Strategy Pod",
-                               pnl_title="Net PnL (USD)", ret_title="Return on Capital"),
-        width="stretch",
-    )
+    charts.bar_with_return(pod_grp, "label", "net_pnl", "return_on_capital",
+                           height=340, title="Net PnL by Strategy Pod",
+                           pnl_title="Net PnL (USD)", ret_title="Return on Capital")
 with c_right:
     team_grp = attribution.pnl_by_group(pm_net_daily, pms, "team_id")
     team_grp["label"] = team_grp["team_id"].map(team_name)
-    st.altair_chart(
-        charts.bar_with_return(team_grp, "label", "net_pnl", "return_on_capital",
-                               height=340, title="Net PnL by Team",
-                               pnl_title="Net PnL (USD)", ret_title="Return on Capital"),
-        width="stretch",
-    )
+    charts.bar_with_return(team_grp, "label", "net_pnl", "return_on_capital",
+                           height=340, title="Net PnL by Team",
+                           pnl_title="Net PnL (USD)", ret_title="Return on Capital")
 st.caption("Bars = Net PnL (USD). Orange dots = return on allocated capital. Both on independent axes.")
 
 left2, right2 = st.columns(2)
 with left2:
     strat = attribution.contribution_by(pf, instruments, "strategy_tag", aum=aum)
-    st.altair_chart(
-        charts.bar_with_return(strat, "strategy_tag", "gross_pnl", "return_on_aum",
-                               height=340, title="Gross PnL by Strategy",
-                               pnl_title="Gross PnL (USD)", ret_title="Return on AUM"),
-        width="stretch",
-    )
+    charts.bar_with_return(strat, "strategy_tag", "gross_pnl", "return_on_aum",
+                           height=340, title="Gross PnL by Strategy",
+                           pnl_title="Gross PnL (USD)", ret_title="Return on AUM")
 with right2:
     ac = attribution.contribution_by(pf, instruments, "asset_class", aum=aum)
-    st.altair_chart(
-        charts.bar_with_return(ac, "asset_class", "gross_pnl", "return_on_aum",
-                               height=340, title="Gross PnL by Asset Class",
-                               pnl_title="Gross PnL (USD)", ret_title="Return on AUM"),
-        width="stretch",
-    )
+    charts.bar_with_return(ac, "asset_class", "gross_pnl", "return_on_aum",
+                           height=340, title="Gross PnL by Asset Class",
+                           pnl_title="Gross PnL (USD)", ret_title="Return on AUM")
 
 # ---- Non-trading income (other non-recurring) -------------------------------
 section("Non-trading Income by Category")
@@ -164,12 +152,9 @@ ctab_display = ctab.rename(columns=rename_map)
 
 c3, c4 = st.columns(2)
 with c3:
-    st.altair_chart(
-        charts.stacked_cost_bar(ctab_display, "Name", display_cost_cols, "cost_ratio",
-                                height=320, title=f"Cost Breakdown by {cost_key_label}",
-                                ratio_title="Cost / Gross PnL"),
-        width="stretch",
-    )
+    charts.stacked_cost_bar(ctab_display, "Name", display_cost_cols, "cost_ratio",
+                            height=320, title=f"Cost Breakdown by {cost_key_label}",
+                            ratio_title="Cost / Gross PnL")
 with c4:
     st.markdown(f"**Cost detail by {cost_key_label}** — sorted by total cost")
     show_cols = ["Name"] + display_cost_cols + ["Total Cost", "Cost / Gross"]

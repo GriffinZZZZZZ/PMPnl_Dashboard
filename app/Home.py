@@ -40,6 +40,8 @@ cards = [
     kpi_card("AUM", fmt_money(results["aum"])),
     kpi_card("Gross PnL", fmt_money(gross), "trading + non-trading", "up" if gross >= 0 else "down"),
     kpi_card("Net PnL", fmt_money(net), "after trading costs", "up" if net >= 0 else "down"),
+    kpi_card("Return on AUM", fmt_pct(net / results["aum"]) if results["aum"] else "n/a",
+             "net PnL / AUM", "up" if net >= 0 else "down"),
     kpi_card("Eligible PnL", fmt_money(eligible), "after overhead & capital charge",
              "up" if eligible >= 0 else "down"),
     kpi_card("Incentive Comp Accrued", fmt_money(comp),
@@ -68,6 +70,18 @@ st.caption(
     f"NAV at period end: **{fmt_money(float(nav['NAV'].iloc[-1]))}** "
     f"(AUM {fmt_money(results['aum'])} + cumulative net PnL)."
 )
+
+# ---- Fund AUM over time -----------------------------------------------------
+if not results["aum_history"].empty:
+    section("Fund AUM Over Time")
+    aum_curve = results["aum_history"].rename("Fund AUM").to_frame()
+    charts.show_area(aum_curve, "Fund AUM", key="home_aum",
+                     color=colors()["accent2"], y_title="AUM (USD)",
+                     y_zero=False)
+    st.caption(
+        f"AUM changes monthly: net investor subscriptions/redemptions + performance-based PM reallocation. "
+        f"Period-end AUM: **{fmt_money(results['aum_period_end'])}**."
+    )
 
 # ---- All-PM PnL in time dimension -------------------------------------------
 section("All Portfolio Managers — PnL Over Time")
@@ -98,33 +112,41 @@ dd_by_pm = results["drawdown_by_pm"]
 pod_name  = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 
+# Per-PM period-end AUM for drawdown % denominator.
+_pm_aum_hist_home = results["pm_aum_history"]
+if not _pm_aum_hist_home.empty:
+    pm_aum_end = (_pm_aum_hist_home.sort_values("date")
+                  .groupby("pm_id")["pm_aum"].last())
+else:
+    pm_aum_end = pms.set_index("pm_id")["pm_aum"]
+
 rank = pms.set_index("pm_id").copy()
 rank["Pod"]  = rank["pod_id"].map(pod_name)
 rank["Team"] = rank["team_id"].map(team_name)
-rank["Net PnL ($M)"]     = (net_by_pm / 1e6)
-rank["Eligible ($M)"]    = (elig_by_pm / 1e6)
-rank["Comp ($M)"]        = (comp_by_pm / 1e6)
-rank["Max Drawdown ($M)"] = (dd_by_pm / 1e6)
-rank["Comp / Eligible"]  = (comp_by_pm / elig_by_pm).clip(lower=0, upper=1).fillna(0) * 100
-rank["Trend (3mo)"]      = spark
+rank["Net PnL ($M)"]  = (net_by_pm / 1e6)
+rank["Eligible ($M)"] = (elig_by_pm / 1e6)
+rank["Comp ($M)"]     = (comp_by_pm / 1e6)
+rank["Max DD (%)"]    = (dd_by_pm / pm_aum_end * 100).fillna(0)
+rank["Comp / Eligible"] = (comp_by_pm / elig_by_pm).clip(lower=0, upper=1).fillna(0) * 100
+rank["Trend (3mo)"]   = spark
 rank = rank.reset_index().sort_values("Net PnL ($M)", ascending=False)
 rank.insert(0, "PM", rank["pm_name"])
-show = rank[["PM", "Pod", "Team", "Net PnL ($M)", "Eligible ($M)", "Max Drawdown ($M)", "Comp ($M)", "Comp / Eligible", "Trend (3mo)"]]
+show = rank[["PM", "Pod", "Team", "Net PnL ($M)", "Eligible ($M)", "Max DD (%)", "Comp ($M)", "Comp / Eligible", "Trend (3mo)"]]
 
 st.dataframe(
-    style_negative(show, subset=["Net PnL ($M)", "Eligible ($M)", "Max Drawdown ($M)"]),
+    style_negative(show, subset=["Net PnL ($M)", "Eligible ($M)", "Max DD (%)"]),
     hide_index=True,
     width="stretch",
     column_config={
-        "Net PnL ($M)":       st.column_config.NumberColumn(format="$%.1fM"),
-        "Eligible ($M)":      st.column_config.NumberColumn(format="$%.1fM"),
-        "Max Drawdown ($M)":  st.column_config.NumberColumn(format="$%.1fM"),
-        "Comp ($M)":          st.column_config.NumberColumn(format="$%.1fM"),
-        "Comp / Eligible":    st.column_config.ProgressColumn(min_value=0.0, max_value=100.0, format="%.0f%%"),
-        "Trend (3mo)":        st.column_config.LineChartColumn("Trend (3mo)", width="medium"),
+        "Net PnL ($M)":    st.column_config.NumberColumn(format="$%.1fM"),
+        "Eligible ($M)":   st.column_config.NumberColumn(format="$%.1fM"),
+        "Max DD (%)":      st.column_config.NumberColumn(format="%.1f%%"),
+        "Comp ($M)":       st.column_config.NumberColumn(format="$%.1fM"),
+        "Comp / Eligible": st.column_config.ProgressColumn(min_value=0.0, max_value=100.0, format="%.0f%%"),
+        "Trend (3mo)":     st.column_config.LineChartColumn("Trend (3mo)", width="medium"),
     },
 )
-st.caption("Net / Eligible PnL and comp in $M. Max Drawdown = largest trough below HWM. Trend = last ~3 months.")
+st.caption("Net / Eligible PnL and comp in $M. Max DD = largest trough below HWM as % of allocated capital. Trend = last ~3 months.")
 
 # ---- Controls & Reconciliation ----------------------------------------------
 section("Controls & Reconciliation")

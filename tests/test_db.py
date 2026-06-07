@@ -54,6 +54,11 @@ def tiny_tables():
         "category": ["Fee Rebate"],
         "amount":   [1234.5],
     })
+    aum_history = pd.DataFrame({
+        "date":   [dates[0], dates[2]],
+        "pm_id":  ["PM_A", "PM_A"],
+        "pm_aum": [1_000_000.0, 1_050_000.0],
+    })
     cfg = {"teams": [{"team_id": "T1", "name": "Team 1"}]}
     return {
         "strategy_pods":      strategy_pods,
@@ -62,6 +67,7 @@ def tiny_tables():
         "eod_prices":         eod_prices,
         "eod_positions":      eod_positions,
         "eod_income":         eod_income,
+        "aum_history":        aum_history,
     }, cfg
 
 
@@ -189,7 +195,7 @@ def test_list_tables(tmp_db):
     names = [n for n, _ in items]
     for expected in ["strategy_pods", "investment_teams", "portfolio_managers",
                      "security_master", "eod_prices", "eod_positions", "eod_income",
-                     "trade_blotter"]:
+                     "aum_history", "trade_blotter"]:
         assert expected in names
     for expected in ["vw_manager_hierarchy", "vw_mtm_positions"]:
         assert expected in names

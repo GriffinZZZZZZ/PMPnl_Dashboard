@@ -155,8 +155,15 @@ def show_line(
 
 
 def show_area(df: pd.DataFrame, val: str, *, key: str, x: str = "date", height: int = 280,
-              color: str | None = None, y_title: str = "USD", title: str | None = None) -> None:
-    """Render a single-series area with drag-zoom and a hover guide line."""
+              color: str | None = None, y_title: str = "USD", title: str | None = None,
+              y_zero: bool = True, y_fmt: str | None = None) -> None:
+    """Render a single-series area with drag-zoom and a hover guide line.
+
+    Args:
+        y_zero: if False, y-axis domain is computed from the data range (5% padding each side),
+            guaranteeing variation is visible even when the base value is large relative to swings.
+        y_fmt: Vega-Lite/D3 format string for axis tick labels and tooltip (e.g. ".1%" for pct).
+    """
     p = colors()
     c = color or p["bad"]
     data = df.reset_index() if x not in df.columns else df.copy()
@@ -164,14 +171,79 @@ def show_area(df: pd.DataFrame, val: str, *, key: str, x: str = "date", height: 
     xenc = _xenc(x)
     nearest, zoom = _hover_zoom_params(x)
     base = alt.Chart(data)
+    # Compute y-scale and, for all-positive data, an explicit area baseline.
+    # Vega-Lite's mark_area always tries to fill to y=0. When y_zero=False and data
+    # sits far above zero (e.g. AUM at 100 M), the scale gets silently extended down
+    # to 0, pushing data to the very top with a huge blank region below.
+    # Fix: for all-positive data, supply y2=datum(domain_lo) so the fill baseline
+    # is the scale bottom rather than zero. For mixed/negative data (drawdown) zero
+    # is already within the computed domain, so no explicit y2 is needed.
+    y2_baseline = None
+    if y_zero:
+        y_scale = alt.Scale(zero=True)
+    else:
+        valid = data[val].dropna()
+        if len(valid) > 0:
+            d_min, d_max = float(valid.min()), float(valid.max())
+            spread = (d_max - d_min) if d_max != d_min else max(abs(d_min) * 0.1, 1.0)
+            domain_lo = d_min - spread * 0.05
+            domain_hi = d_max + spread * 0.05
+            y_scale = alt.Scale(zero=False, nice=False, domain=[domain_lo, domain_hi])
+            if d_min > 0:          # all-positive series: pin baseline to domain floor
+                y2_baseline = alt.datum(domain_lo)
+        else:
+            y_scale = alt.Scale(zero=False)
+    axis_cfg = alt.Axis(titleAnchor="middle", format=y_fmt) if y_fmt else alt.Axis(titleAnchor="middle")
+    tooltip_fmt = y_fmt or ",.0f"
+    y2_enc = {"y2": y2_baseline} if y2_baseline is not None else {}
     area = base.mark_area(opacity=0.75, line={"color": c}, color=c).encode(
-        x=xenc, y=alt.Y(f"{val}:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
-        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=",.0f")])
+        x=xenc, y=alt.Y(f"{val}:Q", title=y_title, scale=y_scale, axis=axis_cfg),
+        **y2_enc,
+    )
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    # Tooltip on the rule (vertical guide line) rather than the area mark:
+    # area hover in Vega-Lite resolves x but often fails to resolve y field values.
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3]).encode(
-        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
+        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)),
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=tooltip_fmt)],
+    )
     chart = _cfg(alt.layer(area, selectors, rule).properties(height=height, title=title or ""), p)
     event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _apply_zoom(event, key, x)
+
+
+def show_stacked_area(
+    df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
+    height: int = 320, title: str | None = None,
+    series_colors: list[str] | None = None,
+) -> None:
+    """Render a stacked area chart with drag-zoom, hover guide, and centered legend."""
+    p = colors()
+    data = df.reset_index() if x not in df.columns else df.copy()
+    data = _zoom_filter(data, x, key)
+    series = [c for c in data.columns if c != x]
+    n = len(series)
+    palette = list(series_colors)[:n] if series_colors else p["scheme"][:n]
+
+    long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
+    xenc = _xenc(x)
+    nearest, zoom = _hover_zoom_params(x)
+    color = alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette), legend=None)
+    base = alt.Chart(long)
+    areas = base.mark_area(opacity=0.82).encode(
+        x=xenc,
+        y=alt.Y("value:Q", stack="zero", title=y_title,
+                axis=alt.Axis(titleAnchor="middle")),
+        color=color,
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
+                 alt.Tooltip("value:Q", format=",.0f", title="Value")],
+    )
+    selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
+        x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
+    chart = _cfg(alt.layer(areas, selectors, rule).properties(height=height, title=title or ""), p)
+    event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
+    _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
 
@@ -277,11 +349,8 @@ def scatter(df: pd.DataFrame, x: str, y: str, *, color_field: str, tooltip: list
 
 def bar_with_return(df: pd.DataFrame, cat: str, pnl_col: str, ret_col: str, *,
                     height: int = 340, title: str | None = None,
-                    pnl_title: str = "PnL (USD)", ret_title: str = "Return") -> alt.Chart:
-    """Bars (PnL, left axis) + points (return, right axis) — dual-axis combo.
-
-    Shows PnL magnitude and return-on-capital side by side without a toggle.
-    """
+                    pnl_title: str = "PnL (USD)", ret_title: str = "Return") -> None:
+    """Render bars (PnL, left axis) + return dots (right axis) with a centered two-item legend."""
     p = colors()
     df = df.copy()
     sortspec = alt.EncodingSortField(field=pnl_col, order="descending")
@@ -306,17 +375,18 @@ def bar_with_return(df: pd.DataFrame, cat: str, pnl_col: str, ret_col: str, *,
         )
     )
     ch = alt.layer(bars, points).resolve_scale(y="independent").properties(height=height, title=title or "")
-    return _cfg(ch, p, legend_bottom=False)
+    st.altair_chart(_cfg(ch, p, legend_bottom=False), use_container_width=True)
+    _legend([(pnl_title, p["good"]), (ret_title, p["warn"])])
 
 
 def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col: str, *,
                      height: int = 320, title: str | None = None,
-                     ratio_title: str = "Cost / Gross") -> alt.Chart:
-    """Stacked bars (financing/borrow/commission/fx/center) + Cost/Gross point on 2nd axis."""
+                     ratio_title: str = "Cost / Gross") -> None:
+    """Render stacked cost bars + Cost/Gross ratio dot (2nd axis) with a unified centered legend."""
     p = colors()
-    # Six hues: blue, red, amber, purple (scheme[3]), green, orange (scheme[1]).
-    # Adjacent colors are maximally different so the stacked segments are easy to tell apart.
-    _cost_palette = [p["accent2"], p["bad"], p["warn"], p["scheme"][3], p["good"], p["scheme"][1]]
+    # Six perceptually-distinct hues at ~60° spacing on the color wheel.
+    # Fixed Tailwind-400 values so they pop equally on dark and light backgrounds.
+    _cost_palette = ["#F87171", "#60A5FA", "#FB923C", "#34D399", "#A78BFA", "#FCD34D"]
     cost_colors = _cost_palette[:len(cost_cols)]
     long = df[[cat] + cost_cols].melt(id_vars=cat, var_name="Cost Type", value_name="Cost")
     domain = cost_cols
@@ -330,14 +400,15 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
             y=alt.Y("Cost:Q", stack="zero", title="Total Cost (USD)", axis=alt.Axis(titleAnchor="middle")),
             color=alt.Color("Cost Type:N",
                             scale=alt.Scale(domain=domain, range=cost_colors),
-                            legend=alt.Legend(title=None, orient="bottom")),
+                            legend=None),
             tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip("Cost Type:N"),
                      alt.Tooltip("Cost:Q", format=",.0f")],
         )
     )
-    # Ratio dot uses accent (teal), distinct from all 6 cost-segment colors.
+    # Ratio dot: single accent color, filled solid, slightly enlarged for visibility.
     points = (
-        alt.Chart(df[df[ratio_col].notna()]).mark_point(size=80, filled=True, color=p["accent"], opacity=0.9)
+        alt.Chart(df[df[ratio_col].notna()])
+        .mark_point(size=110, filled=True, color=p["accent"], opacity=0.95)
         .encode(
             x=alt.X(f"{cat}:N", axis=_xaxis),
             y=alt.Y(f"{ratio_col}:Q", title=ratio_title,
@@ -347,7 +418,9 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
     )
     ch = (alt.layer(stacked, points).resolve_scale(y="independent")
           .properties(height=height, title=title or ""))
-    return _cfg(ch, p)
+    st.altair_chart(_cfg(ch, p, legend_bottom=False), use_container_width=True)
+    # Unified legend: all cost-type color chips + the ratio dot chip.
+    _legend([(c, cost_colors[i]) for i, c in enumerate(cost_cols)] + [(ratio_title, p["accent"])])
 
 
 def html_table(df: pd.DataFrame, *, money_cols: list[str] | None = None,

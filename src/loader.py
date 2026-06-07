@@ -39,7 +39,7 @@ except Exception:  # streamlit not installed
 
 
 _DB_TABLES = ["strategy_pods", "portfolio_managers", "security_master", "eod_prices",
-              "eod_positions", "eod_income"]
+              "eod_positions", "eod_income", "aum_history"]
 
 
 @_cache(show_spinner=False)
@@ -99,6 +99,36 @@ def compute_all(
     )
     pm_daily = pm_daily.merge(income_daily, on=["date", "pm_id"], how="left")
     pm_daily["non_trading_pnl"] = pm_daily["non_trading_pnl"].fillna(0.0)
+
+    # Inject time-varying pm_aum from aum_history (forward-filled to daily).
+    # Falls back gracefully if aum_history is missing (old DB or unit tests).
+    aum_hist_raw = raw.get("aum_history", pd.DataFrame(columns=["date", "pm_id", "pm_aum"]))
+    if date_from:
+        aum_hist_raw = aum_hist_raw[aum_hist_raw["date"] >= pd.Timestamp(date_from)]
+    if date_to:
+        aum_hist_raw = aum_hist_raw[aum_hist_raw["date"] <= pd.Timestamp(date_to)]
+
+    if not aum_hist_raw.empty:
+        biz_dates = pd.DatetimeIndex(sorted(pm_daily["date"].unique()))
+        aum_daily = (
+            aum_hist_raw.set_index(["date", "pm_id"])["pm_aum"]
+            .unstack("pm_id")
+            .reindex(biz_dates)
+            .ffill()
+            .bfill()
+            .stack()
+            .reset_index()
+            .rename(columns={0: "pm_aum", "level_0": "date"})
+        )
+        pm_daily = pm_daily.merge(aum_daily, on=["date", "pm_id"], how="left")
+        # Fund AUM series (for charting) and period-end value.
+        fund_aum_series = aum_daily.groupby("date")["pm_aum"].sum().sort_index()
+        pm_aum_history  = aum_daily.copy()
+        aum_period_end  = float(fund_aum_series.iloc[-1]) if len(fund_aum_series) else economics.aum(cfg)
+    else:
+        fund_aum_series = pd.Series(dtype=float)
+        pm_aum_history  = pd.DataFrame(columns=["date", "pm_id", "pm_aum"])
+        aum_period_end  = economics.aum(cfg)
 
     pm_net_daily = costs.add_costs(pm_daily, cfg, pms)
 
@@ -160,6 +190,9 @@ def compute_all(
         "netting_cost": attribution.netting_cost(total_comp, fund_net, cfg),
         "hypothetical_netted_comp": attribution.hypothetical_netted_comp(fund_net, cfg),
         "prices": prices_f,
+        "aum_history":    fund_aum_series,
+        "pm_aum_history": pm_aum_history,
+        "aum_period_end": aum_period_end,
     }
 
 
@@ -185,6 +218,31 @@ def comp_liability_curve(payoff_daily: pd.DataFrame, pm_net_daily: pd.DataFrame)
     denom = out["cum_gross"].where(out["cum_gross"] > 0)
     out["comp_pct_of_gross"] = out["comp"] / denom
     return out[["comp", "comp_pct_of_gross"]]
+
+
+def comp_breakdown_curve(
+    payoff_daily: pd.DataFrame,
+    pm_net_daily: pd.DataFrame,
+    fund_mgmt_fee: float = 0.0,
+    fund_base_comp: float = 0.0,
+) -> pd.DataFrame:
+    """Cumulative comp liability split into Mgmt Fee / Base Comp / Incentive Comp.
+
+    Mgmt Fee and Base Comp accrue linearly over the period; Incentive Comp
+    follows the HWM-based step function from payoff_daily.
+    Returns a date-indexed DataFrame with three columns.
+    """
+    dates = sorted(pm_net_daily["date"].unique())
+    n = len(dates)
+    incent = payoff_daily.groupby("date")["accrued_comp"].sum().reindex(dates).fillna(0.0)
+    step = 1.0 / n if n else 0.0
+    mgmt_series  = pd.Series([fund_mgmt_fee  * step * (i + 1) for i in range(n)], index=dates)
+    base_series  = pd.Series([fund_base_comp * step * (i + 1) for i in range(n)], index=dates)
+    return pd.DataFrame({
+        "Mgmt Fee":       mgmt_series,
+        "Base Comp":      base_series,
+        "Incentive Comp": incent.values,
+    }, index=pd.DatetimeIndex(dates, name="date"))
 
 
 def fund_nav_curve(pm_net_daily: pd.DataFrame, aum_value: float) -> pd.DataFrame:

@@ -143,3 +143,14 @@ pms:
   # Event
   - {pm_id: PM_EVT_1, pod_id: POD_EVT, team_id: TEAM_BETA,  name: "JJJ", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6, prior_year_pnl:         0, base_salary: 800000}
   - {pm_id: PM_EVT_2, pod_id: POD_EVT, team_id: TEAM_DELTA, name: "KKK", allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3, prior_year_pnl:         0, base_salary: 400000}
+
+# -----------------------------------------------------------------------------
+# Dynamic AUM reallocation. Each month an investment committee adjusts PM
+# capital: top performers gain, underperformers are cut. Overall fund AUM also
+# drifts via net investor subscriptions/redemptions.
+# -----------------------------------------------------------------------------
+aum_dynamics:
+  monthly_flow_mean_bps: 50      # +0.5 % / month average net investor inflow
+  monthly_flow_std_bps:  150     # ±1.5 % std (redemption / subscription noise)
+  reallocation_range:    [0.05, 0.12]   # 5–12 % of a PM's AUM moved per event
+  n_reallocated:         3       # number of top/bottom PMs reallocated each month

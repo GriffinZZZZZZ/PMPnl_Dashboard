@@ -221,6 +221,104 @@ def generate_income(
     return pd.DataFrame(rows, columns=cols).sort_values(["pm_id", "date"]).reset_index(drop=True)
 
 
+def generate_aum_history(
+    cfg: dict,
+    pms: pd.DataFrame,
+    prices: pd.DataFrame,
+    positions: pd.DataFrame,
+    dates: pd.DatetimeIndex,
+    rng: np.random.Generator,
+) -> pd.DataFrame:
+    """Monthly PM AUM snapshots driven by realized performance ranking.
+
+    Uses already-generated positions + prices to rank PMs by cumulative MTM
+    return each month-end, then reallocates capital from underperformers to
+    outperformers. Fund-level AUM also drifts via simulated investor flows.
+
+    Returns [date, pm_id, pm_aum] with one row per PM per snapshot date.
+    The first snapshot is at dates[0] (initial state); subsequent snapshots
+    are at business-month-end dates.
+    """
+    dyn = cfg.get("aum_dynamics", {})
+    mean_bps    = float(dyn.get("monthly_flow_mean_bps", 50))
+    std_bps     = float(dyn.get("monthly_flow_std_bps", 150))
+    r_lo, r_hi  = dyn.get("reallocation_range", [0.05, 0.12])
+    n_realloc   = int(dyn.get("n_reallocated", 3))
+    floor_pct   = 0.20  # PM AUM floor = 20 % of initial
+
+    # Rough daily MTM PnL: prev_qty × Δprice (no costs, good enough for ranking).
+    merged = (
+        positions.sort_values(["pm_id", "ticker", "date"])
+        .merge(prices[["date", "ticker", "price"]], on=["date", "ticker"])
+    )
+    merged["prev_price"] = merged.groupby(["pm_id", "ticker"])["price"].shift(1)
+    merged["prev_qty"]   = merged.groupby(["pm_id", "ticker"])["qty"].shift(1)
+    merged = merged.dropna(subset=["prev_price", "prev_qty"])
+    merged["daily_pnl"] = merged["prev_qty"] * (merged["price"] - merged["prev_price"])
+    pnl_by_day = merged.groupby(["date", "pm_id"])["daily_pnl"].sum().reset_index()
+    pnl_by_day = pnl_by_day.sort_values(["pm_id", "date"])
+    pnl_by_day["cum_pnl"] = pnl_by_day.groupby("pm_id")["daily_pnl"].cumsum()
+
+    # Business-month-end dates within the simulation window.
+    monthly_ends = (
+        pd.Series(dates)
+        .to_frame("date")
+        .assign(ym=lambda d: d["date"].dt.to_period("M"))
+        .groupby("ym")["date"]
+        .last()
+        .to_numpy()
+    )
+
+    initial_aum = {row["pm_id"]: float(row["allocated_capital"]) for _, row in pms.iterrows()}
+    floors      = {pm: v * floor_pct for pm, v in initial_aum.items()}
+    current_aum = dict(initial_aum)
+    pm_ids      = list(current_aum.keys())
+
+    rows: list[dict] = []
+    for pm_id in pm_ids:                              # initial snapshot
+        rows.append({"date": dates[0], "pm_id": pm_id, "pm_aum": current_aum[pm_id]})
+
+    for month_end in monthly_ends:
+        # Cumulative return per PM up to this month-end.
+        snap = (
+            pnl_by_day[pnl_by_day["date"] <= month_end]
+            .groupby("pm_id")["cum_pnl"].last()
+        )
+        ret = {pm: float(snap.get(pm, 0.0)) / current_aum[pm] for pm in pm_ids}
+        ranked  = sorted(pm_ids, key=lambda pm: ret[pm], reverse=True)
+        winners = ranked[:n_realloc]
+        losers  = ranked[-n_realloc:]
+
+        # Within-fund reallocation (zero-sum): cut from losers, give to winners.
+        cut_amts  = [current_aum[pm] * float(rng.uniform(r_lo, r_hi)) for pm in losers]
+        gain_amts = [current_aum[pm] * float(rng.uniform(r_lo, r_hi)) for pm in winners]
+        total_cut  = sum(cut_amts)
+        total_gain = sum(gain_amts)
+        scale = total_cut / total_gain if total_gain > 0 else 0.0
+
+        for pm, amt in zip(losers, cut_amts):
+            current_aum[pm] = max(current_aum[pm] - amt, floors[pm])
+        for pm, amt in zip(winners, gain_amts):
+            current_aum[pm] += amt * scale
+
+        # Fund-level net flow (subscriptions / redemptions).
+        fund_total = sum(current_aum.values())
+        net_flow   = fund_total * float(rng.normal(mean_bps, std_bps)) / 1e4
+        if net_flow >= 0:
+            per_w = net_flow / len(winners)
+            for pm in winners:
+                current_aum[pm] += per_w
+        else:
+            per_l = abs(net_flow) / len(losers)
+            for pm in losers:
+                current_aum[pm] = max(current_aum[pm] - per_l, floors[pm])
+
+        for pm_id in pm_ids:
+            rows.append({"date": month_end, "pm_id": pm_id, "pm_aum": current_aum[pm_id]})
+
+    return pd.DataFrame(rows, columns=["date", "pm_id", "pm_aum"])
+
+
 def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     """Generate every table and write parquet files to ``data/``.
 
@@ -235,7 +333,8 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
     instruments = generate_instruments(cfg, rng)
     prices = generate_prices(cfg, instruments, dates, rng)
     positions = generate_positions(cfg, pms, instruments, prices, dates, rng)
-    income = generate_income(cfg, pms, dates, rng)
+    income    = generate_income(cfg, pms, dates, rng)
+    aum_hist  = generate_aum_history(cfg, pms, prices, positions, dates, rng)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -259,6 +358,7 @@ def generate_all(cfg: dict | None = None) -> dict[str, pd.DataFrame]:
         "eod_prices":         prices_db,
         "eod_positions":      positions_db,
         "eod_income":         income,
+        "aum_history":        aum_hist,
     }
     write_database(tables, cfg)
     return tables

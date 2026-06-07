@@ -15,7 +15,7 @@ from app.components.theme import page_header, section, setup_page
 from src.config import blended_payout_ratio
 from src.db import query
 from src.engine import attribution
-from src.loader import comp_liability_curve, compute_all
+from src.loader import comp_breakdown_curve, compute_all
 
 setup_page("Incentive Compensation Accrual", "💰")
 bounds = query("SELECT MIN(date) as lo, MAX(date) as hi FROM eod_prices").iloc[0]
@@ -98,16 +98,22 @@ with c3:
         },
     )
 
-# ---- accrued comp liability + share of eligible PnL -------------------------
+# ---- accrued comp liability — stacked by component --------------------------
 section("Accrued Comp Liability Over Time")
-liab = comp_liability_curve(results["payoff_daily"], results["pm_net_daily"])
-liab = liab.rename(columns={"comp": "Accrued Comp", "comp_pct_of_gross": "Comp % of Gross PnL"})
-charts.show_dual(liab, "Accrued Comp", "Comp % of Gross PnL", key="comp_liab",
-                 left_title="Accrued Comp (USD)", right_title="Comp % of Gross PnL", height=320)
+breakdown = comp_breakdown_curve(
+    results["payoff_daily"], results["pm_net_daily"],
+    fund_mgmt_fee=results["fund_mgmt_fee"],
+    fund_base_comp=results["fund_base_comp"],
+)
+charts.show_stacked_area(
+    breakdown, key="comp_liab", y_title="Cumulative Liability (USD)",
+    title="Cumulative Comp Liability — Mgmt Fee + Base Comp + Incentive Comp",
+    height=300,
+)
 st.caption(
-    "Red area = cumulative incentive comp booked as a GAAP liability. "
-    "Teal line = comp as a share of cumulative gross PnL (a stable positive denominator). "
-    "Comp accrues only when a PM creates a new high above their HWM."
+    "Stacked cumulative liability booked against investors. "
+    "Mgmt Fee and Base Comp accrue linearly. "
+    "Incentive Comp steps up only when a PM posts a new high above their HWM."
 )
 
 # ---- netting risk time series -----------------------------------------------
