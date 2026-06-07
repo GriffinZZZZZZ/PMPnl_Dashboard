@@ -110,19 +110,16 @@ def show_line(
     height: int = 320, title: str | None = None,
     series_colors: list[str] | None = None,
 ) -> None:
-    """Render a multi-series line chart with drag-zoom, hover guide, and legend.
+    """Render a multi-series line chart with drag-zoom, hover guide, centered legend.
 
     Wrapped in ``@st.fragment`` so drag-to-zoom reruns only this chart, not the
     whole page.
 
-    Legend behavior:
-    - ≤ 5 series: centered HTML legend (prettier, always visible).
-    - > 5 series: Altair native legend with click-to-highlight — click a series
-      name to isolate it; click again to reset.
-
     Args:
         series_colors: optional explicit color per series (same order as df columns).
             When None, theme scheme is used for ≤8 series; category20 for larger sets.
+            IMPORTANT: always pass ``domain`` alongside ``range`` so Altair's
+            alphabetical sort doesn't mis-map colors to lines (fixed here).
     """
     p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
@@ -140,33 +137,16 @@ def show_line(
     long = data.melt(id_vars=[x], value_vars=series, var_name="Series", value_name="value")
     xenc = _xenc(x)
     nearest, zoom = _hover_zoom_params(x)
-
-    # Dense charts (> 5 series): Altair native legend with click-to-highlight.
-    # Sparse (≤ 5): custom centered HTML legend (prettier for small series counts).
-    use_native_legend = n > 5
-    if use_native_legend:
-        click = alt.selection_point(fields=["Series"], bind="legend")
-        color = alt.Color(
-            "Series:N", scale=alt.Scale(domain=series, range=palette),
-            legend=alt.Legend(orient="bottom", direction="horizontal",
-                              symbolType="circle", columns=min(n, 5)),
-        )
-        line_opacity = alt.condition(click, alt.value(1.0), alt.value(0.15))
-    else:
-        click = None
-        color = alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette), legend=None)
-        line_opacity = alt.value(1.0)
-
+    # Always legend=None here — the custom HTML _legend() below centers it reliably
+    # across all series counts. Altair's built-in orient="bottom" is left-aligned and
+    # consumes chart height, which breaks compact charts (height ≤ 220).
+    color = alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette), legend=None)
     base = alt.Chart(long)
     lines = base.mark_line(strokeWidth=2).encode(
-        x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")),
-        color=color, opacity=line_opacity,
+        x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")), color=color,
         tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
                  alt.Tooltip("value:Q", format=",.0f", title="Value")],
     )
-    if click is not None:
-        lines = lines.add_params(click)
-
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
     points = lines.mark_point(size=55, filled=True).encode(
         opacity=alt.condition(nearest, alt.value(1), alt.value(0)))
@@ -174,9 +154,7 @@ def show_line(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
     chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
     event = st.altair_chart(chart, key=key, on_select="rerun", selection_mode=["zoom"])
-
-    if not use_native_legend:
-        _legend([(s, palette[i]) for i, s in enumerate(series)])
+    _legend([(s, palette[i]) for i, s in enumerate(series)])
     _apply_zoom(event, key, x)
 
 
