@@ -84,7 +84,7 @@ config/assumptions.yaml ──┐
 **macOS / Linux**
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/GriffinZZZZZZ/PMPnl_Dashboard
 cd pm_pnl_dashboard
 
 python3 -m venv .venv
@@ -96,7 +96,7 @@ pip install -r requirements.txt
 **Windows (PowerShell)**
 
 ```powershell
-git clone <repo-url>
+git clone https://github.com/GriffinZZZZZZ/PMPnl_Dashboard
 cd pm_pnl_dashboard
 
 python -m venv .venv
