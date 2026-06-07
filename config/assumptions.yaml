@@ -1,0 +1,156 @@
+# =============================================================================
+# PM PnL Dashboard — economic assumptions (single source of truth)
+#
+# Nothing economic is hardcoded in the engine. Change a value here, rerun
+# `python run.py`, and the whole pipeline + dashboard recompute. This is the
+# "config-driven, not a one-off script" proof point.
+# =============================================================================
+
+# Deterministic synthetic-data generation
+seed: 20240601
+n_business_days: 252        # ~1 trading year of daily data  (dt = 1/252)
+n_instruments: 50
+calendar_start: "2025-01-02"  # first business day of 2025; calendar runs forward n_business_days from here
+
+# -----------------------------------------------------------------------------
+# Gross -> Net bridge cost rates. Rates are ANNUAL; the engine multiplies by
+# dt = 1/252 to charge them daily on the prior day's exposure.
+# -----------------------------------------------------------------------------
+costs:
+  financing_rate:  0.030    # annual, charged on gross exposure (|long| + |short|)
+  borrow_rate:     0.015    # annual, charged on short notional
+  commission_bps:  1.5      # bps on traded notional (|delta qty| * price)
+  fx_rate:         0.010    # annual FX conversion cost, charged on FX-asset-class gross notional
+
+# -----------------------------------------------------------------------------
+# Non-trading PnL = "other non-recurring income": one-off items that are NOT
+# mark-to-market trading PnL (tax reclaims, fee rebates, legal settlements,
+# corporate actions, interest true-ups). Generated as sparse per-PM events and
+# stored in the eod_income table. These flow into Gross PnL, so they reach the
+# PM comp base (Eligible PnL) like any other book PnL.
+# -----------------------------------------------------------------------------
+non_trading_income:
+  annual_events_per_pm: 6     # expected number of one-off items per PM per year
+  amount_mean:    150000      # USD: lognormal median size of an event
+  amount_sigma:   0.8         # lognormal shape (spread of event sizes)
+  negative_prob:  0.15        # share of items that are charges (negative), not income
+  categories: ["Tax Reclaim", "Fee Rebate", "Legal Settlement", "Corporate Action", "Interest True-up"]
+
+# Center cost = fund overhead (ops, tech, compliance, rent). Annual figure
+# expressed as bps on AUM; accrued daily (* dt) at the fund level and deducted
+# ONCE when computing Investor Net (never inside PM Net).
+center_cost:
+  bps_on_aum: 35.0          # 0.35% of AUM per year
+
+# Management fee = the "2" in "2 and 20". Charged on AUM annually, accrues daily,
+# deducted from Investor Net (not from PM eligible PnL — this is a fund-level cost).
+management_fee:
+  bps_on_aum: 200           # 2.00% of AUM per year
+
+# -----------------------------------------------------------------------------
+# Structural (tiered) compensation. The per-PM `payout_ratio` below is the
+# contractual BASE rate. On top of it, a marginal ladder rewards larger profit:
+# comp = sum over tiers of (base + add_pp) * (profit-above-HWM that falls in that
+# tier). `upto` is the upper bound of profit-above-HWM for the tier (null = top).
+# Thresholds are illustrative and config-driven — raise them for more visible
+# tiering against this fund's profit magnitudes.
+# -----------------------------------------------------------------------------
+comp_tiers:
+  - {upto: 1000000,  add_pp: 0.00}   # base rate on the first $1M of profit above HWM
+  - {upto: 2000000,  add_pp: 0.03}   # +3pp marginal on $1M–$2M
+  - {upto: null,     add_pp: 0.06}   # +6pp marginal above $2M
+
+# -----------------------------------------------------------------------------
+# Price process: factor model.  r_{i,t} = beta_i * f_t + eps_{i,t}
+#   f_t   ~ N(market.mu * dt, market.sigma * sqrt(dt))     (shared market factor)
+#   eps   ~ N(alpha_i * dt,  idio_vol_i * sqrt(dt))        (idiosyncratic)
+# Shared factor creates co-movement, which is what makes netting risk non-trivial.
+# -----------------------------------------------------------------------------
+market:
+  mu:    0.06               # annual market-factor drift
+  sigma: 0.16               # annual market-factor volatility
+
+# Per-asset-class: market beta, idiosyncratic vol, alpha dispersion, universe weight.
+asset_classes:
+  Equity:    {beta: 1.10, idio_vol: 0.18, alpha_dispersion: 0.10, weight: 0.40}
+  Rates:     {beta: 0.25, idio_vol: 0.06, alpha_dispersion: 0.04, weight: 0.15}
+  Credit:    {beta: 0.55, idio_vol: 0.09, alpha_dispersion: 0.06, weight: 0.15}
+  Commodity: {beta: 0.70, idio_vol: 0.24, alpha_dispersion: 0.12, weight: 0.15}
+  FX:        {beta: 0.35, idio_vol: 0.10, alpha_dispersion: 0.05, weight: 0.15}
+
+# -----------------------------------------------------------------------------
+# Position model. Each PM's `skill` (below) sets how strongly target weights align
+# with realized forward returns; the rest is noise. Higher skill -> more profit.
+# -----------------------------------------------------------------------------
+position_model:
+  gross_leverage_min: 1.8
+  gross_leverage_max: 2.6
+  noise_scale: 1.0          # idiosyncratic positioning noise relative to skill signal
+
+# -----------------------------------------------------------------------------
+# Pods (strategy buckets). allocated_capital in USD.
+# -----------------------------------------------------------------------------
+pods:
+  - {pod_id: POD_ECM, name: "Equity L/S", strategy_type: "Equity Long-Short",  allocated_capital: 480000000}
+  - {pod_id: POD_QNT, name: "Quant",      strategy_type: "Systematic Quant",   allocated_capital: 380000000}
+  - {pod_id: POD_MAC, name: "Macro",      strategy_type: "Global Macro",       allocated_capital: 300000000}
+  - {pod_id: POD_CRD, name: "Credit",     strategy_type: "Credit",             allocated_capital: 250000000}
+  - {pod_id: POD_EVT, name: "Event",      strategy_type: "Event / Merger Arb", allocated_capital: 220000000}
+
+# -----------------------------------------------------------------------------
+# Teams = a SECOND pod taxonomy. Some PMs actually sit on one cross-strategy
+# team (shared risk, shared resources) even though their books map to different
+# strategy pods. Pages can group by Strategy pod OR by Team. Every PM has exactly
+# one team_id, so Fund Net = sum(Team Net) also ties out (recon R6).
+# -----------------------------------------------------------------------------
+teams:
+  - {team_id: TEAM_ALPHA, name: "Team 1"}
+  - {team_id: TEAM_BETA,  name: "Team 2"}
+  - {team_id: TEAM_GAMMA, name: "Team 3"}
+  - {team_id: TEAM_DELTA, name: "Team 4"}
+
+# -----------------------------------------------------------------------------
+# PMs. Each runs a sub-book with its OWN payout terms.
+#   payout_ratio : share of profit (above HWM + hurdle) paid to the PM
+#   hurdle_rate  : annual return threshold on allocated_capital; accrues as
+#                  hurdle_rate * capital * (t * dt). Kept small by design.
+#   initial_HWM  : starting high-water mark on cumulative net PnL (USD)
+#   skill        : alignment of positions with realized forward returns. >0 skilled,
+#                  ~0 noise (likely underwater after costs), <0 anti-skilled (loses).
+#   team_id      : the PM's cross-strategy team (second pod taxonomy).
+#   prior_year_pnl: last year's result (USD). If NEGATIVE, it is a loss carryforward
+#                  the PM must earn back THIS year before any comp accrues
+#                  (loss_carryforward = max(0, -prior_year_pnl)).
+#   base_salary  : fixed annual cash compensation (USD/yr), independent of performance.
+#                  Accrues daily, deducted from Investor Net (not from PM eligible PnL).
+# Pod-level comp = sum of its PMs. allocated_capital sums to the pod's capital.
+# PM names are anonymized to codes (AAA, BBB, ...).
+# -----------------------------------------------------------------------------
+pms:
+  # Equity L/S
+  - {pm_id: PM_ECM_1, pod_id: POD_ECM, team_id: TEAM_ALPHA, name: "AAA", allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0, prior_year_pnl:         0, base_salary: 750000}
+  - {pm_id: PM_ECM_2, pod_id: POD_ECM, team_id: TEAM_BETA,  name: "BBB", allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9, prior_year_pnl:         0, base_salary: 500000}
+  - {pm_id: PM_ECM_3, pod_id: POD_ECM, team_id: TEAM_GAMMA, name: "CCC", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4, prior_year_pnl: -1000000, base_salary: 350000}
+  # Quant
+  - {pm_id: PM_QNT_1, pod_id: POD_QNT, team_id: TEAM_ALPHA, name: "DDD", allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8, prior_year_pnl:         0, base_salary: 700000}
+  - {pm_id: PM_QNT_2, pod_id: POD_QNT, team_id: TEAM_GAMMA, name: "EEE", allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1, prior_year_pnl:  -800000, base_salary: 400000}
+  # Macro
+  - {pm_id: PM_MAC_1, pod_id: POD_MAC, team_id: TEAM_BETA,  name: "FFF", allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2, prior_year_pnl:         0, base_salary: 600000}
+  - {pm_id: PM_MAC_2, pod_id: POD_MAC, team_id: TEAM_GAMMA, name: "GGG", allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6, prior_year_pnl: -1000000, base_salary: 350000}
+  # Credit
+  - {pm_id: PM_CRD_1, pod_id: POD_CRD, team_id: TEAM_ALPHA, name: "HHH", allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5, prior_year_pnl:         0, base_salary: 650000}
+  - {pm_id: PM_CRD_2, pod_id: POD_CRD, team_id: TEAM_DELTA, name: "III", allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6, prior_year_pnl: -1500000, base_salary: 450000}
+  # Event
+  - {pm_id: PM_EVT_1, pod_id: POD_EVT, team_id: TEAM_BETA,  name: "JJJ", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6, prior_year_pnl:         0, base_salary: 800000}
+  - {pm_id: PM_EVT_2, pod_id: POD_EVT, team_id: TEAM_DELTA, name: "KKK", allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3, prior_year_pnl:         0, base_salary: 400000}
+
+# -----------------------------------------------------------------------------
+# Dynamic AUM reallocation. Each month an investment committee adjusts PM
+# capital: top performers gain, underperformers are cut. Overall fund AUM also
+# drifts via net investor subscriptions/redemptions.
+# -----------------------------------------------------------------------------
+aum_dynamics:
+  monthly_flow_mean_bps: 50      # +0.5 % / month average net investor inflow
+  monthly_flow_std_bps:  150     # ±1.5 % std (redemption / subscription noise)
+  reallocation_range:    [0.05, 0.12]   # 5–12 % of a PM's AUM moved per event
+  n_reallocated:         3       # number of top/bottom PMs reallocated each month

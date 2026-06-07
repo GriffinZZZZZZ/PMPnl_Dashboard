@@ -1,0 +1,74 @@
+# Native Streamlit theming (>=1.57). Both [theme.light] and [theme.dark] are defined,
+# so users switch light/dark from the app settings menu (☰ → Settings → Appearance).
+# Charts inherit `chartCategoricalColors`; custom components read the injected --st-*
+# CSS variables (see app/components/theme.py), so almost nothing is hardcoded.
+
+[theme]
+base = "dark"
+font = "'IBM Plex Sans':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+headingFont = "'Fraunces':https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
+codeFont = "'IBM Plex Mono':https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&display=swap"
+baseFontSize = 16
+baseRadius = "12px"
+buttonRadius = "10px"
+linkUnderline = false
+showWidgetBorder = true
+showSidebarBorder = true
+headingFontSizes = ["33px", "22px", "18px", "16px", "14px", "12px"]
+headingFontWeights = [600, 600, 700, 600, 600, 600]
+
+[theme.dark]
+primaryColor = "#4FD1C5"
+backgroundColor = "#0F141C"
+secondaryBackgroundColor = "#161D29"
+codeBackgroundColor = "#121925"
+textColor = "#E7ECF5"
+linkColor = "#6AA0FF"
+borderColor = "#243044"
+greenColor = "#3FB870"
+redColor = "#F2645A"
+yellowColor = "#E3B341"
+orangeColor = "#F78C6B"
+blueColor = "#6AA0FF"
+violetColor = "#C792EA"
+grayColor = "#8A94A8"
+dataframeBorderColor = "#243044"
+dataframeHeaderBackgroundColor = "#121925"
+
+[theme.dark.sidebar]
+backgroundColor = "#0C111A"
+secondaryBackgroundColor = "#161D29"
+borderColor = "#243044"
+textColor = "#E7ECF5"
+primaryColor = "#4FD1C5"
+
+[theme.light]
+primaryColor = "#0E8A7D"
+backgroundColor = "#F5F4EF"
+secondaryBackgroundColor = "#FFFFFF"
+codeBackgroundColor = "#FBFAF6"
+textColor = "#1C2430"
+linkColor = "#3A6FD8"
+borderColor = "#E3DFD5"
+greenColor = "#1F9D55"
+redColor = "#D64545"
+yellowColor = "#B9791B"
+orangeColor = "#C2603F"
+blueColor = "#3A6FD8"
+violetColor = "#8A5BD6"
+grayColor = "#6B7280"
+dataframeBorderColor = "#E3DFD5"
+dataframeHeaderBackgroundColor = "#FBFAF6"
+
+[theme.light.sidebar]
+backgroundColor = "#EFEDE6"
+secondaryBackgroundColor = "#FFFFFF"
+borderColor = "#E3DFD5"
+textColor = "#1C2430"
+primaryColor = "#0E8A7D"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

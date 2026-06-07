@@ -1,0 +1,99 @@
+"""Mark-to-market PnL engine.
+
+Daily PnL is **pure mark-to-market** (no realized/unrealized split, no cost-basis
+tracking)::
+
+    gross_pnl_t = sum_ticker  quantity_{t-1} * (close_price_t - close_price_{t-1})
+
+This module builds the enriched per-position daily frame that the cost engine
+also consumes (exposure, short notional, traded notional), then rolls PnL up the
+hierarchy Position -> PM -> Pod -> Fund and produces cumulative equity curves.
+"""
+from __future__ import annotations
+
+import pandas as pd
+
+
+def build_position_frame(
+    prices: pd.DataFrame,
+    positions: pd.DataFrame,
+    instruments: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Join prices onto positions and derive the per-position daily quantities.
+
+    Args:
+        prices: long frame with columns ``[date, ticker, close_price]``.
+        positions: long frame with columns ``[date, pm_id, ticker, quantity]``.
+        instruments: optional roster with ``[ticker, asset_class]``; if given,
+            FX-asset-class positions get a non-zero ``fx_notional`` column used
+            by the FX cost engine.
+
+    Returns:
+        A frame indexed by row with columns::
+
+            date, pm_id, ticker, quantity, prev_quantity, close_price, prev_price,
+            gross_pnl, gross_exposure, long_notional, short_notional, traded_notional
+
+        The first date per (pm_id, ticker) has zero PnL/costs because there is
+        no prior day to mark against. ``fx_notional`` is non-zero only for tickers
+        whose ``asset_class == "FX"``; it equals ``gross_exposure`` for those rows.
+    """
+    df = positions.merge(prices, on=["date", "ticker"], how="left")
+    if instruments is not None:
+        df = df.merge(instruments[["ticker", "asset_class"]], on="ticker", how="left")
+    df = df.sort_values(["pm_id", "ticker", "date"]).reset_index(drop=True)
+
+    grp = df.groupby(["pm_id", "ticker"], sort=False)
+    df["prev_quantity"] = grp["quantity"].shift(1)
+    df["prev_price"]    = grp["close_price"].shift(1)
+
+    # First observation per series has no prior mark -> treat as flat/no trade.
+    df["prev_quantity"] = df["prev_quantity"].fillna(df["quantity"])
+    df["prev_price"]    = df["prev_price"].fillna(df["close_price"])
+
+    df["gross_pnl"]       = df["prev_quantity"] * (df["close_price"] - df["prev_price"])
+    df["gross_exposure"]  = (df["prev_quantity"] * df["prev_price"]).abs()
+    df["long_notional"]   = df["prev_quantity"].clip(lower=0) * df["prev_price"]
+    df["short_notional"]  = (-df["prev_quantity"]).clip(lower=0) * df["prev_price"]
+    df["traded_notional"] = (df["quantity"] - df["prev_quantity"]).abs() * df["close_price"]
+    # FX notional: gross_exposure only for FX asset class, 0 otherwise.
+    if "asset_class" in df.columns:
+        df["fx_notional"] = df["gross_exposure"].where(df["asset_class"] == "FX", 0.0)
+    else:
+        df["fx_notional"] = 0.0
+    return df
+
+
+def pm_daily_gross(position_frame: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate the position frame to daily trading PnL & exposures per PM.
+
+    The per-position MTM ``gross_pnl`` rolls up to ``trading_pnl`` here — at the PM
+    level "gross PnL" also includes non-trading income (added downstream in the cost
+    engine), so the rolled-up market PnL is named ``trading_pnl`` to keep the split clear.
+
+    Returns columns ``[date, pm_id, trading_pnl, gross_exposure, long_notional,
+    short_notional, traded_notional, fx_notional]``.
+    """
+    agg = (
+        position_frame.groupby(["date", "pm_id"], as_index=False)[
+            ["gross_pnl", "gross_exposure", "long_notional", "short_notional",
+             "traded_notional", "fx_notional"]
+        ]
+        .sum()
+        .sort_values(["pm_id", "date"])
+        .reset_index(drop=True)
+        .rename(columns={"gross_pnl": "trading_pnl"})
+    )
+    return agg
+
+
+def add_cumulative(df: pd.DataFrame, value_col: str, by: str, out_col: str) -> pd.DataFrame:
+    """Add a cumulative-sum column ``out_col`` of ``value_col`` within each ``by`` group."""
+    df = df.sort_values([by, "date"]).copy()
+    df[out_col] = df.groupby(by, sort=False)[value_col].cumsum()
+    return df
+
+
+def rollup(df: pd.DataFrame, keys: list[str], value_cols: list[str]) -> pd.DataFrame:
+    """Generic additive roll-up: sum ``value_cols`` grouped by ``keys``."""
+    return df.groupby(keys, as_index=False)[value_cols].sum()
