@@ -31,7 +31,7 @@ aum = results["aum"]
 pod_name = pods.set_index("pod_id")["pod_name"].to_dict()
 team_name = {t["team_id"]: t["name"] for t in results["cfg"]["teams"]}
 
-page_header("Attribution", "Decompose fund PnL by pod, strategy, and position — and see where costs and losses sit.")
+page_header("PnL Attribution", "Decompose fund PnL by pod, strategy, and position — and see where costs and losses sit.")
 
 # ---- PnL + Return attribution — two charts side by side, no toggle ----------
 section("PnL Attribution")
@@ -55,12 +55,12 @@ with left2:
     strat = attribution.contribution_by(pf, instruments, "strategy_tag", aum=aum)
     charts.bar_with_return(strat, "strategy_tag", "gross_pnl", "return_on_aum",
                            height=340, title="Gross PnL by Strategy",
-                           pnl_title="Gross PnL (USD)", ret_title="Return on AUM")
+                           pnl_title="Gross PnL (USD)", ret_title="Return on Capital")
 with right2:
     ac = attribution.contribution_by(pf, instruments, "asset_class", aum=aum)
     charts.bar_with_return(ac, "asset_class", "gross_pnl", "return_on_aum",
                            height=340, title="Gross PnL by Asset Class",
-                           pnl_title="Gross PnL (USD)", ret_title="Return on AUM")
+                           pnl_title="Gross PnL (USD)", ret_title="Return on Capital")
 
 # ---- Non-trading income (other non-recurring) -------------------------------
 section("Non-trading Income by Category")
@@ -160,11 +160,12 @@ with c4:
     show_cols = ["Name"] + display_cost_cols + ["Total Cost", "Cost / Gross"]
     ctab_display["Total Cost"] = ctab_display["total_cost"]
     ctab_display["Cost / Gross"] = ctab_display["cost_ratio"] * 100
-    charts.html_table(
-        ctab_display[show_cols],
-        money_cols=display_cost_cols + ["Total Cost"],
-        pct_cols=["Cost / Gross"],
-        na_str="n/a",
+    money_cfg = {c: st.column_config.NumberColumn(format="$%.0f") for c in display_cost_cols + ["Total Cost"]}
+    money_cfg["Cost / Gross"] = st.column_config.NumberColumn(format="%.1f%%")
+    st.dataframe(
+        style_negative(ctab_display[show_cols], subset=["Cost / Gross"]),
+        hide_index=True, width="stretch", height=320,
+        column_config=money_cfg,
     )
 
 # ---- risk vs return scatter -------------------------------------------------

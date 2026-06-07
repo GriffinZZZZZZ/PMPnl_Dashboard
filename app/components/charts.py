@@ -20,6 +20,20 @@ from app.components.theme import colors
 SANS = "IBM Plex Sans"
 DISPLAY = "Fraunces"
 
+# Vega expression for USD axis labels: $350M / $5.24M / $500k.
+# labelExpr overrides format and uses Vega's own engine — more reliable than D3 format strings.
+_USD_LABEL_EXPR = (
+    "datum.value === 0 ? '$0'"
+    " : (datum.value < 0 ? '-$' : '$')"
+    " + (abs(datum.value) >= 1e9"
+    "   ? format(abs(datum.value)/1e9, '.2~f') + 'B'"
+    "   : abs(datum.value) >= 1e6"
+    "   ? format(abs(datum.value)/1e6, '.2~f') + 'M'"
+    "   : abs(datum.value) >= 1e3"
+    "   ? format(abs(datum.value)/1e3, '.0f') + 'k'"
+    "   : format(abs(datum.value), ',.0f'))"
+)
+
 # Vega-Lite category20 — 20 perceptually distinct colors for dense multi-series charts.
 _CATEGORY20 = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
@@ -118,6 +132,7 @@ def show_line(
     df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
     height: int = 320, title: str | None = None,
     series_colors: list[str] | None = None,
+    y_fmt: str = "$~s",
 ) -> None:
     """Render a multi-series line chart with drag-zoom, hover guide, centered legend.
 
@@ -152,16 +167,26 @@ def show_line(
     color = alt.Color("Series:N", scale=alt.Scale(domain=series, range=palette), legend=None)
     base = alt.Chart(long)
     lines = base.mark_line(strokeWidth=2).encode(
-        x=xenc, y=alt.Y("value:Q", title=y_title, axis=alt.Axis(titleAnchor="middle")), color=color,
+        x=xenc, color=color,
         tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
-                 alt.Tooltip("value:Q", format=",.0f", title="Value")],
+                 alt.Tooltip("value:Q", format="$,.0f", title="Value")],
     )
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
-    points = lines.mark_point(size=55, filled=True).encode(
+    points = base.mark_point(size=55, filled=True).encode(
+        x=xenc, color=color,
         opacity=alt.condition(nearest, alt.value(1), alt.value(0)))
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
-    chart = _cfg(alt.layer(lines, selectors, points, rule).properties(height=height, title=title or ""), p)
+    # Y at layer level: labelExpr lands at encoding.y.axis.labelExpr (top-level spec),
+    # where Vega-Lite's axis resolver can read it. Per-layer Y buries it inside
+    # layer[N].encoding.y.axis.labelExpr, which is silently dropped during resolution.
+    chart = _cfg(
+        alt.layer(lines, selectors, points, rule)
+        .encode(y=alt.Y("value:Q", title=y_title,
+                         axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")))
+        .properties(height=height, title=title or ""),
+        p
+    )
     _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
     event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _legend([(s, palette[i]) for i, s in enumerate(series)])
@@ -208,21 +233,34 @@ def show_area(df: pd.DataFrame, val: str, *, key: str, x: str = "date", height: 
                 y2_baseline = alt.datum(domain_lo)
         else:
             y_scale = alt.Scale(zero=False)
-    axis_cfg = alt.Axis(titleAnchor="middle", format=y_fmt) if y_fmt else alt.Axis(titleAnchor="middle")
-    tooltip_fmt = y_fmt or ",.0f"
+    if y_fmt:
+        axis_cfg = alt.Axis(titleAnchor="middle", format=y_fmt)
+        tooltip_fmt = y_fmt
+    else:
+        axis_cfg = alt.Axis(titleAnchor="middle", labelExpr=_USD_LABEL_EXPR)
+        tooltip_fmt = "$,.0f"
     y2_enc = {"y2": y2_baseline} if y2_baseline is not None else {}
     area = base.mark_area(opacity=0.75, line={"color": c}, color=c).encode(
-        x=xenc, y=alt.Y(f"{val}:Q", title=y_title, scale=y_scale, axis=axis_cfg),
+        x=xenc,
         **y2_enc,
     )
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
+    dot = base.mark_point(size=55, filled=True, color=c).encode(
+        x=xenc,
+        opacity=alt.condition(nearest, alt.value(1), alt.value(0)),
+    )
     # Tooltip on the rule (vertical guide line) rather than the area mark:
     # area hover in Vega-Lite resolves x but often fails to resolve y field values.
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3]).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)),
         tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{val}:Q", format=tooltip_fmt)],
     )
-    chart = _cfg(alt.layer(area, selectors, rule).properties(height=height, title=title or ""), p)
+    chart = _cfg(
+        alt.layer(area, selectors, dot, rule)
+        .encode(y=alt.Y(f"{val}:Q", title=y_title, scale=y_scale, axis=axis_cfg))
+        .properties(height=height, title=title or ""),
+        p
+    )
     _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
     event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _apply_zoom(event, key, x)
@@ -233,6 +271,7 @@ def show_stacked_area(
     df: pd.DataFrame, *, key: str, x: str = "date", y_title: str = "USD",
     height: int = 320, title: str | None = None,
     series_colors: list[str] | None = None,
+    y_fmt: str = "$~s",
 ) -> None:
     """Render a stacked area chart with drag-zoom, hover guide, and centered legend."""
     p = colors()
@@ -249,16 +288,20 @@ def show_stacked_area(
     base = alt.Chart(long)
     areas = base.mark_area(opacity=0.82).encode(
         x=xenc,
-        y=alt.Y("value:Q", stack="zero", title=y_title,
-                axis=alt.Axis(titleAnchor="middle")),
         color=color,
         tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip("Series:N"),
-                 alt.Tooltip("value:Q", format=",.0f", title="Value")],
+                 alt.Tooltip("value:Q", format="$,.0f", title="Value")],
     )
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3], size=1).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)))
-    chart = _cfg(alt.layer(areas, selectors, rule).properties(height=height, title=title or ""), p)
+    chart = _cfg(
+        alt.layer(areas, selectors, rule)
+        .encode(y=alt.Y("value:Q", stack="zero", title=y_title,
+                         axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")))
+        .properties(height=height, title=title or ""),
+        p
+    )
     _chart_key = f"{key}_v{st.session_state.get(f'zoom_v_{key}', 0)}"
     event = st.altair_chart(chart, key=_chart_key, on_select="rerun", selection_mode=["zoom"])
     _legend([(s, palette[i]) for i, s in enumerate(series)])
@@ -268,7 +311,7 @@ def show_stacked_area(
 @st.fragment
 def show_dual(df: pd.DataFrame, left: str, right: str, *, key: str, x: str = "date",
               left_title: str = "USD", right_title: str = "%", height: int = 300,
-              title: str | None = None) -> None:
+              title: str | None = None, left_fmt: str = "$~s") -> None:
     """Render an area (left $) + line (right %) dual-axis chart with zoom + hover."""
     p = colors()
     data = df.reset_index() if x not in df.columns else df.copy()
@@ -277,14 +320,14 @@ def show_dual(df: pd.DataFrame, left: str, right: str, *, key: str, x: str = "da
     nearest, zoom = _hover_zoom_params(x)
     base = alt.Chart(data)
     left_layer = base.mark_area(opacity=0.6, color=p["bad"], line={"color": p["bad"]}).encode(
-        x=xenc, y=alt.Y(f"{left}:Q", title=left_title, axis=alt.Axis(titleColor=p["bad"], titleAnchor="middle")))
+        x=xenc, y=alt.Y(f"{left}:Q", title=left_title, axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleColor=p["bad"], titleAnchor="middle")))
     right_layer = base.mark_line(strokeWidth=2.5, color=p["accent"]).encode(
         x=xenc, y=alt.Y(f"{right}:Q", title=right_title,
                         axis=alt.Axis(format=".0%", titleColor=p["accent"], titleAnchor="middle")))
     selectors = base.mark_point().encode(x=xenc, opacity=alt.value(0)).add_params(nearest, zoom)
     rule = base.mark_rule(color=p["muted"], strokeDash=[4, 3]).encode(
         x=xenc, opacity=alt.condition(nearest, alt.value(0.8), alt.value(0)),
-        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{left}:Q", format=",.0f", title=left_title),
+        tooltip=[alt.Tooltip(f"{x}:T", title="Date"), alt.Tooltip(f"{left}:Q", format="$,.0f", title=left_title),
                  alt.Tooltip(f"{right}:Q", format=".1%", title=right_title)])
     layered = (alt.layer(left_layer, right_layer, selectors, rule)
                .resolve_scale(y="independent").properties(height=height, title=title or ""))
@@ -299,7 +342,7 @@ def show_dual(df: pd.DataFrame, left: str, right: str, *, key: str, x: str = "da
 # ---------------------------------------------------------------------------
 def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
         sort_by_value: bool = True, diverging: bool = False, color: str | None = None,
-        height: int = 320, title: str | None = None, fmt: str = "~s",
+        height: int = 320, title: str | None = None, fmt: str = "$~s",
         cat_title: str | None = None, val_title: str | None = None) -> alt.Chart:
     """Bar chart with angled category labels, value sort, optional diverging colors."""
     p = colors()
@@ -307,7 +350,7 @@ def bar(data: pd.DataFrame, cat: str, val: str, *, horizontal: bool = False,
     sortspec = alt.EncodingSortField(field=val, order="descending") if sort_by_value else None
     cat_axis = alt.Axis(labelAngle=0 if horizontal else -45, title=cat_title,
                         labelLimit=0, labelOverlap=False)
-    val_axis = alt.Axis(format=fmt, titleAnchor="middle")
+    val_axis = alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")
     cat_channel = alt.Y(f"{cat}:N", sort=sortspec, axis=cat_axis) if horizontal else \
         alt.X(f"{cat}:N", sort=sortspec, axis=cat_axis)
     val_channel = alt.X(f"{val}:Q", title=val_title, axis=val_axis) if horizontal else \
@@ -391,9 +434,9 @@ def bar_with_return(df: pd.DataFrame, cat: str, pnl_col: str, ret_col: str, *,
         alt.Chart(df).mark_bar(cornerRadiusEnd=3)
         .encode(
             x=x_enc,
-            y=alt.Y(f"{pnl_col}:Q", title=pnl_title, axis=alt.Axis(titleAnchor="middle")),
+            y=alt.Y(f"{pnl_col}:Q", title=pnl_title, axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")),
             color=alt.condition(f"datum['{pnl_col}'] >= 0", alt.value(p["good"]), alt.value(p["bad"])),
-            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{pnl_col}:Q", format=",.0f", title=pnl_title)],
+            tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip(f"{pnl_col}:Q", format="$,.0f", title=pnl_title)],
         )
     )
     points = (
@@ -428,12 +471,12 @@ def stacked_cost_bar(df: pd.DataFrame, cat: str, cost_cols: list[str], ratio_col
         alt.Chart(long).mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
         .encode(
             x=alt.X(f"{cat}:N", axis=_xaxis),
-            y=alt.Y("Cost:Q", stack="zero", title="Total Cost (USD)", axis=alt.Axis(titleAnchor="middle")),
+            y=alt.Y("Cost:Q", stack="zero", title="Total Cost (USD)", axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")),
             color=alt.Color("Cost Type:N",
                             scale=alt.Scale(domain=domain, range=cost_colors),
                             legend=None),
             tooltip=[alt.Tooltip(f"{cat}:N"), alt.Tooltip("Cost Type:N"),
-                     alt.Tooltip("Cost:Q", format=",.0f")],
+                     alt.Tooltip("Cost:Q", format="$,.0f")],
         )
     )
     # Ratio dot: single accent color, filled solid, slightly enlarged for visibility.
@@ -525,10 +568,10 @@ def show_sweep(
 
     base = alt.Chart(long).mark_line(strokeWidth=2.5).encode(
         x=alt.X(f"{x}:Q", axis=alt.Axis(format=".0%", title=x_title)),
-        y=alt.Y("value:Q", title="USD", axis=alt.Axis(titleAnchor="middle")),
+        y=alt.Y("value:Q", title="USD", axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")),
         color=alt.Color("Series:N", scale=alt.Scale(domain=series_names, range=palette), legend=None),
         tooltip=[alt.Tooltip(f"{x}:Q", format=".0%", title=x_title), alt.Tooltip("Series:N"),
-                 alt.Tooltip("value:Q", format=",.0f")],
+                 alt.Tooltip("value:Q", format="$,.0f")],
     )
 
     # Baseline: dashed amber = fund's current ratio.
@@ -557,7 +600,7 @@ def show_sweep(
 
 
 def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None,
-              fmt: str = "~s") -> alt.Chart:
+              fmt: str = "$~s") -> alt.Chart:
     """Bridge waterfall. ``steps`` = list of ``(label, value, kind)`` with kind in
     ``{'total','delta'}``; totals are drawn from zero, deltas float on the running sum.
     """
@@ -582,7 +625,7 @@ def waterfall(steps: list[tuple], *, height: int = 360, title: str | None = None
         .encode(
             x=alt.X("label:N", sort=order,
                     axis=alt.Axis(labelAngle=-30, title=None, labelLimit=0, labelOverlap=False)),
-            y=alt.Y("lo:Q", title="USD", axis=alt.Axis(format=fmt, titleAnchor="middle")),
+            y=alt.Y("lo:Q", title="USD", axis=alt.Axis(labelExpr=_USD_LABEL_EXPR, titleAnchor="middle")),
             y2="hi:Q",
             color=alt.Color("dir:N", scale=scale, legend=None),
             tooltip=[alt.Tooltip("label:N", title="Component"),

@@ -10,7 +10,7 @@
 seed: 20240601
 n_business_days: 252        # ~1 trading year of daily data  (dt = 1/252)
 n_instruments: 50
-calendar_end: "2025-12-31"  # business-day calendar is anchored to this end date (full-year 2025)
+calendar_start: "2025-01-02"  # first business day of 2025; calendar runs forward n_business_days from here
 
 # -----------------------------------------------------------------------------
 # Gross -> Net bridge cost rates. Rates are ANNUAL; the engine multiplies by

@@ -8,7 +8,7 @@ the dashboard's Controls panel.
         Fund Non-trading == sum(eod_income); Fund Gross == Trading + Non-trading == sum(Pod Gross)
     R2  Fund Net   == sum(Pod Net)   == sum(PM Net)   (after trading costs only)
     R3  Total Comp == sum(PM accrued_comp_T)
-    R4  Investor Net == Eligible − mgmt_fee − base_comp − incentive_comp + capital_charges
+    R4  Investor Net == Eligible - mgmt_fee - base_comp - incentive_comp + capital_charges
     R5  Each Pod Net == sum of its PMs' Net
     R6  Fund Net == sum(Team Net)
     R7  sum(PM center_alloc) == center_cost_total
@@ -82,9 +82,9 @@ def run_checks(results: dict, cfg: dict) -> list[Check]:
     sum_pm_comp = float(total_comp_by_pm(results["payoff_daily"])["total_comp"].sum())
     checks.append(Check("Total comp = sum of each PM's accrued comp", total_comp, sum_pm_comp))
 
-    # R4 — Full investor waterfall: eligible − mgmt_fee − base_comp − incentive_comp + capital_charges.
+    # R4 — Full investor waterfall: eligible - mgmt_fee - base_comp - incentive_comp + capital_charges.
     checks.append(Check(
-        "Investor net = Eligible − mgmt fee − base comp − incentive comp + capital charges",
+        "Investor net = Eligible - mgmt fee - base comp - incentive comp + capital charges",
         fund_eligible - mgmt_fee - base_comp - total_comp + capital_charges,
         investor_net,
     ))

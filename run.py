@@ -13,6 +13,10 @@ from __future__ import annotations
 import subprocess
 import sys
 
+# Windows consoles default to GBK; force UTF-8 so Unicode in output doesn't crash.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import datetime
 import time
 

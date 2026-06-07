@@ -101,7 +101,7 @@ if not _pm_aum_hist.empty:
         .rename(columns=pm_label)
     )
     pm_aum_df = pm_aum_df.reindex(sorted(pm_aum_df.columns), axis=1)
-    charts.show_line(pm_aum_df, key="pm_aum_ts", height=200,
+    charts.show_line(pm_aum_df, key="pm_aum_ts", height=280,
                      y_title="Allocated Capital (USD)")
     st.caption("Capital reallocated monthly: top performers gain AUM, underperformers are cut. Fund-level AUM also reflects net investor flows.")
 
@@ -110,15 +110,15 @@ section(f"{title} — Equity Curve")
 curve = sel_daily.groupby("date")[["gross_pnl", "net_pnl", "eligible_pnl"]].sum().sort_index().cumsum()
 curve.columns = ["Gross", "Net", "Eligible"]
 charts.show_line(curve, key="pod_eq", height=300, y_title="Cumulative PnL (USD)")
-dd_sel   = float(sel_payoff.assign(dd=lambda d: d["cum_net"] - d["hwm"])["dd"].min())
-cur_dd   = float(sel_payoff.sort_values("date").groupby("pm_id")[["cum_net", "hwm"]].last()
-                 .eval("cum_net - hwm").sum())
 dd_series = (
     sel_payoff.groupby("date")[["cum_net", "hwm"]].sum()
     .sort_index()
     .assign(Drawdown=lambda d: d["cum_net"] - d["hwm"])
     [["Drawdown"]]
 )
+dd_sel = float(dd_series["Drawdown"].min())
+cur_dd = float(sel_payoff.sort_values("date").groupby("pm_id")[["cum_net", "hwm"]].last()
+                .eval("cum_net - hwm").sum())
 # Convert to percentage points (×100): values like -5.0 = 5% below HWM.
 dd_series_pct = dd_series.copy()
 if cap:
