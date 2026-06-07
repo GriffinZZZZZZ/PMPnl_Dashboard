@@ -15,6 +15,7 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 
 # Local run logs
 st_out.log

@@ -29,8 +29,10 @@ therefore be able to:
    looking across all pods at once — can compute this exposure.
 4. **Report investor net economics.** What LPs actually keep after all costs and
    comp is a finance number, not a trading number.
-5. **Forecast cash.** Comp and financing are real outflows; treasury needs them
-   projected, not discovered.
+5. **Run decision-support what-ifs.** Before a board meeting, finance must be
+   able to answer "what happens to investor net if we cut payout ratios 5pp?" or
+   "what does netting risk look like if we add a new macro PM?" — live, not days
+   later after rebuilding the spreadsheet.
 6. **Exercise independent control.** Finance independently marks and costs what
    PMs claim, and proves it reconciles.
 

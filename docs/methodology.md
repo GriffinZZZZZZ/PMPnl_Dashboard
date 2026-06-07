@@ -81,32 +81,51 @@ gross exposure (prior day) = `|10 × 100| = 1000`. (See `tests/test_pnl.py`.)
 
 ---
 
-## 4. Gross → Net bridge — trading costs  (`src/engine/costs.py`)
+## 4. Gross → Net → Eligible bridge  (`src/engine/costs.py`)
 
-Config rates are **annual**; charged daily on the **prior day's** exposure via `dt`:
+**Gross PnL has two components:**
 
 ```
-financing_{pm,t}  = financing_rate * gross_exposure_{pm,t-1} * dt
-borrow_{pm,t}     = borrow_rate    * short_notional_{pm,t-1} * dt
+trading_pnl     = Σ_i prev_qty × Δprice          (mark-to-market, bottom-up)
+non_trading_pnl = other non-recurring income       (fee rebates, settlements, …; eod_income table)
+gross_pnl       = trading_pnl + non_trading_pnl
+```
+
+**Tier 1 — trading costs** (market-facing; rates are annual, charged daily via `dt` on prior-day exposures):
+
+```
+financing_{pm,t}  = financing_rate * long_notional_{pm,t-1}  * dt    (longs are financed)
+borrow_{pm,t}     = borrow_rate    * short_notional_{pm,t-1} * dt    (shorts pay borrow)
 commission_{pm,t} = (commission_bps / 1e4) * traded_notional_{pm,t}
-pm_net_{pm,t}     = pm_gross_{pm,t} - financing - borrow - commission
+fx_{pm,t}         = fx_rate        * fx_notional_{pm,t-1}    * dt    (FX-class gross notional)
+trading_cost      = financing + borrow + commission + fx
+net_pnl           = gross_pnl − trading_cost
 ```
 
-> **Center cost is NOT in `pm_net`.** Center cost is a *fund overhead*, deducted
-> once at the fund level (Section 5). PM compensation is paid on `pm_net`, so a
-> PM is never charged for overhead they do not control. This is the key modeling
-> decision that keeps the reconciliation identities exact.
+**Tier 2 — overhead costs** (fund structure; allocated to PMs by AUM share):
 
-**Worked example.** Gross 100; gross exposure 1000; short notional 500; traded 200;
-`financing_rate=0.252`, `borrow_rate=0.504`, `commission_bps=10`:
-`financing = 0.252/252×1000 = 1.0`, `borrow = 0.504/252×500 = 1.0`,
-`commission = 0.001×200 = 0.2` → `pm_net = 100 − 2.2 = 97.8`. (`tests/test_costs.py`.)
+```
+center_{pm,t}         = center_cost_bps_on_aum / 1e4 * pm_aum_{pm,t} * dt
+capital_charge_{pm,t} = hurdle_rate * pm_aum_{pm,t} * dt              (cost of capital)
+overhead_cost         = center + capital_charge
+eligible_pnl          = net_pnl − overhead_cost
+```
+
+> **Incentive comp accrues on `eligible_pnl`**, not on `net_pnl`. Deducting center cost and
+> capital charge before the high-water-mark calculation (Section 5) ensures PMs are only paid
+> on profit that exceeds the fund's cost of running their book.
+
+**Worked example.** Gross 100; long notional 700; short notional 300; traded 200; fx notional 100;
+rates: `financing=0.030`, `borrow=0.015`, `commission_bps=1.5`, `fx_rate=0.010` (all annual):
+`financing = 0.030/252×700 ≈ 0.083`, `borrow = 0.015/252×300 ≈ 0.018`,
+`commission = 0.00015×200 = 0.030`, `fx = 0.010/252×100 ≈ 0.004` → `net_pnl ≈ 99.865`.
+With `center = 0.08`, `capital_charge = 0.12` → `eligible_pnl ≈ 99.665`. (`tests/test_costs.py`.)
 
 ---
 
 ## 5. Compensation — high-water-mark crystallization  (`src/engine/payoff.py`)
 
-Per PM, on cumulative net PnL, with a running high-water mark and **no clawback**.
+Per PM, on cumulative **eligible** PnL, with a running high-water mark and **no clawback**.
 Two structural features sit on top of the base rate:
 
 - **Loss carryforward.** A negative `prior_year_pnl` becomes
@@ -117,10 +136,10 @@ Two structural features sit on top of the base rate:
   eligible profit (e.g. +3pp on $1M–$2M, +6pp above $2M).
 
 ```
-cum_net_{pm,t}      = Σ_{s≤t} pm_net_{pm,s}
-peak_{pm,t}         = max(initial_HWM, max_{s≤t} cum_net)          # ratcheting HWM
-hurdle_amt_{pm,t}   = hurdle_rate * allocated_capital * (t * dt)   # time-scaled, small/0
-profit_above_{pm,t} = max(0, peak - initial_HWM - hurdle_amt - loss_carryforward)
+cum_net_{pm,t}      = Σ_{s≤t} eligible_pnl_{pm,s}                      # accrues on eligible
+peak_{pm,t}         = max(initial_hwm, max_{s≤t} cum_net)               # ratcheting HWM
+hurdle_amt_{pm,t}   = hurdle_rate * pm_aum * (t * dt)                   # audit display only
+profit_above_{pm,t} = max(0, peak - initial_hwm - loss_carryforward)
 accrued_comp_{pm,t} = tiered(profit_above; base = payout_ratio, comp_tiers)
                     = Σ_tiers (base + add_pp) * (profit_above slice in that tier)
 daily_comp_{pm,t}   = accrued_comp_t - accrued_comp_{t-1}   ( ≥ 0 )
@@ -128,17 +147,23 @@ total_comp          = Σ_pm accrued_comp_{pm,T}
 effective_rate_pm   = total_comp_pm / profit_above_pm        # base ≤ effective ≤ base+top add_pp
 ```
 
+> **Why `hurdle_amt` is not subtracted from `profit_above`:** the capital charge
+> (`hurdle_rate × pm_aum × dt`) is already deducted daily inside `eligible_pnl` (Section 4).
+> Subtracting it again in `profit_above` would double-count the hurdle. `hurdle_amt` is kept
+> for audit transparency — it shows the time-scaled threshold on the comp page — but does not
+> enter the computation.
+
 `accrued_comp` is wrapped in a running max so it is **monotonically
 non-decreasing** ("crystallized") — once comp is earned at a peak it does not
 reverse. This models comp as a **GAAP liability that grows daily with PnL**, not
 a year-end surprise.
 
 **Worked examples** (`tests/test_payoff.py`):
-- Net `[50, 50, −30]`, base 0.2, no hurdle/tiers → cum `[50,100,70]`, peak `[50,100,100]`,
+- Eligible `[50, 50, −30]`, base 0.2, no tiers → cum `[50, 100, 70]`, peak `[50, 100, 100]`,
   accrued `[10, 20, 20]` — day 3 stays at 20 (no clawback).
 - Profit above HWM of $3M with base 0.2 and the ladder above → comp
   `0.20×1M + 0.23×1M + 0.26×1M = 690,000` (effective rate 23%).
-- A PM carrying a −$500k prior-year loss earns **0** until cumulative net recovers
+- A PM carrying a −$500k prior-year loss earns **0** until cumulative eligible recovers
   past $500k. An always-underwater PM earns **0** comp.
 
 ---
@@ -167,25 +192,32 @@ real dollars paid on profit the fund did not keep.
 
 ## 7. Investor economics & reconciliation  (`economics.py`, `recon.py`)
 
+The fund-to-investor waterfall (all quantities over the simulated period):
+
 ```
-fund_net_pnl       = Σ_pm pm_net
-center_cost_annual = center_cost_bps / 1e4 * AUM
-center_cost_total  = center_cost_annual * (n_business_days * dt)   # accrued over period
-investor_net       = fund_net_pnl - total_comp - center_cost_total
-comp_expense_ratio = total_comp / fund_net_pnl
+fund_eligible        = Σ_pm eligible_pnl
+fund_capital_charges = Σ_pm capital_charge               # collected from PM books, returned to investors
+investor_net         = fund_eligible − mgmt_fee − base_comp − total_comp + fund_capital_charges
+comp_expense_ratio   = total_comp / fund_eligible
 ```
+
+> **Capital charge pass-through.** Capital charges are deducted from each PM's `eligible_pnl`
+> (lowering the comp base), but flow into an investor pool — so they are added back to
+> `investor_net`. The net effect is that investors earn the hurdle on their capital.
+> `center_cost` is tracked separately for reporting and the R7 reconciliation check.
 
 **Reconciliation tie-outs** (asserted in `tests/test_recon.py`, shown live in the
 Controls panel):
 
 | ID | Identity |
 |----|----------|
-| R1 | `fund_gross == Σ PM gross == Σ Pod gross` |
-| R2 | `fund_net == Σ PM net == Σ Pod net` |
+| R1 | Fund trading PnL = Σ PM trading = Σ position gross (bottom-up MTM); fund non-trading = Σ eod_income; fund gross = trading + non-trading = Σ pod gross |
+| R2 | `fund_net == Σ PM net == Σ Pod net` (after trading costs only) |
 | R3 | `total_comp == Σ PM accrued_comp_T` |
-| R4 | `investor_net == fund_net − total_comp − center_cost_total` |
+| R4 | `investor_net == fund_eligible − mgmt_fee − base_comp − incentive_comp + capital_charges` |
 | R5 | each `pod_net == Σ of its PMs' net` |
-| R6 | `fund_net == Σ Team net` (the second, team taxonomy also ties out) |
+| R6 | `fund_net == Σ Team net` (the team taxonomy also ties out) |
+| R7 | `Σ PM center_alloc == center_cost_total` (center pass-through balance) |
 
 All-green means every figure on every page reconciles end-to-end and is safe to
 show the CEO.
@@ -195,3 +227,30 @@ show the CEO.
 > cover every PM exactly once, so the fund total ties out under either (R2/R5 for
 > pods, R6 for teams). Pages with a *Strategy / Team* toggle use the same engine
 > roll-up (`attribution.pnl_by_group`) keyed on `pod_id` or `team_id`.
+
+---
+
+## 8. Dynamic AUM  (`src/data_gen/generate.py`, `aum_history` table)
+
+Fund AUM is not static. Each month-end, two forces change it:
+
+1. **Performance-based reallocation (within-fund, zero-sum).** PMs are ranked by
+   cumulative MTM return. The bottom `n` underperformers lose a random 5–12% of
+   their AUM; that capital is redistributed to the top `n` outperformers. This
+   models a fund that shifts capital toward its better books.
+
+2. **Net investor flows (fund-level).** A random monthly net flow (subscriptions
+   minus redemptions) scales linearly to the current fund total, drawn from a
+   Normal distribution parameterised by `monthly_flow_mean_bps` and
+   `monthly_flow_std_bps` in config. Positive flow goes to top performers;
+   negative flow is absorbed by underperformers.
+
+A **20% floor** (`floor_pct = 0.20 × initial_pm_aum`) prevents any PM from being
+reduced to zero.
+
+The resulting per-PM monthly snapshots are stored in the `aum_history` table
+(`date, pm_id, pm_aum`). The loader forward-fills these to daily frequency so
+every row in `pm_net_daily` has a `pm_aum` value. The cost engine uses this
+time-varying `pm_aum` to compute `center` and `capital_charge` daily, making the
+overhead deductions — and therefore `eligible_pnl` — dynamic rather than static.
+The fund-level AUM curve is charted on the Home page.

@@ -10,12 +10,17 @@ structural features beyond a flat rate:
 * **Tiered (structural) payout** — the contractual ``payout_ratio`` is the BASE
   rate; ``comp_tiers`` add marginal percentage points on higher bands of profit::
 
-      cum_net_{pm,t}      = sum_{s<=t} pm_net
+      cum_net_{pm,t}      = sum_{s<=t} eligible_pnl           # accrues on eligible, not net
       peak_{pm,t}         = max(initial_HWM, max_{s<=t} cum_net)        # running HWM
-      hurdle_amt_{pm,t}   = hurdle_rate * allocated_capital * (t * dt)
-      profit_above_{pm,t} = max(0, peak - initial_HWM - hurdle_amt - loss_carryforward)
+      hurdle_amt_{pm,t}   = hurdle_rate * pm_aum * (t * dt)   # audit display only; NOT subtracted
+      profit_above_{pm,t} = max(0, peak - initial_HWM - loss_carryforward)
       accrued_comp_{pm,t} = tiered(profit_above; base=payout_ratio, comp_tiers)
       daily_comp_{pm,t}   = accrued_comp_t - accrued_comp_{t-1}   (>= 0)
+
+``hurdle_amt`` is computed for transparency but is **not** subtracted from
+``profit_above``: the capital charge (``hurdle_rate * pm_aum * dt``) is already
+deducted daily inside ``eligible_pnl`` (see costs.py), so subtracting it again
+would double-count the hurdle.
 
 This models comp as a GAAP liability that grows daily with PnL. ``accrued_comp``
 is wrapped in a running max so the non-decreasing / ``daily_comp >= 0`` invariant

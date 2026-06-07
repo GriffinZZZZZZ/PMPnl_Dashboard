@@ -20,14 +20,15 @@ netting risk, and reporting what investors actually net.
 
 ## What you get
 
-- **4-page dashboard** (Fund Overview, Pod & PM drill-down, Attribution, PM Comp as Cost)
-- **Tested calculation engine** — 21 pytest cases vs hand-computed values
+- **5-page dashboard** (Fund Overview, Pod & PM Drill-down, Attribution, PM Comp as Cost, SQL Data Explorer)
+- **Tested calculation engine** — 59 pytest cases vs hand-computed values
 - **Live Controls & Reconciliation panel** — Fund = ΣPod = ΣPM = ΣTeam, comp ties out, investor-net identity holds
 - **Config-driven** — change one value in `config/assumptions.yaml`, everything recomputes
 - **Structural comp** — contractual base payout + tiered marginal ladder + prior-year loss carryforward
 - **Two pod taxonomies** — group by strategy pod or by cross-strategy team (a toggle on each page)
 - **Decision tool** — a payout-ratio slider recomputes comp & investor net live, with the current ratio marked
 - **Polished Altair charts** — zoom, tooltips, angled labels, a Gross→Net waterfall (pure-Python, bundled with Streamlit; no Plotly/matplotlib)
+- **Dynamic AUM** — fund AUM evolves monthly via performance-based PM reallocation + net investor flows; the `aum_history` table feeds the `center` and `capital_charge` deductions daily and is charted on the Home page
 - **Native theming** — refined dark & light themes in `config.toml`; charts, cards, and tables follow the theme automatically (switch via the app's ☰ → Settings)
 
 ---
@@ -37,17 +38,18 @@ netting risk, and reporting what investors actually net.
 ```
 config/assumptions.yaml ──┐
                           ▼
-        src/data_gen/generate.py ──► data/*.parquet
-                          │            (pods, pms, instruments, prices, positions)
+        src/data_gen/generate.py ──► data/pm_pnl.db  (SQLite)
+                          │            (strategy_pods, portfolio_managers, security_master,
+                          │             eod_prices, eod_positions, eod_income, aum_history)
                           ▼
         src/loader.py  ── compute_all() ──► src/engine/
                           │                   pnl → costs → payoff
                           │                   → attribution → economics → recon
                           ▼
-        ┌───────────────────────────────┐      run.py
-        │ app/Home.py + app/pages/1,2,3  │   one command:
-        │ (native st.* charts, theme CSS)│   generate→compute→reconcile→test
-        └───────────────────────────────┘
+        ┌─────────────────────────────────┐      run.py
+        │ app/Home.py + app/pages/1,2,3,4 │   one command:
+        │ (native st.* charts, theme CSS) │   generate→compute→reconcile→test
+        └─────────────────────────────────┘
 ```
 
 ---
@@ -55,7 +57,7 @@ config/assumptions.yaml ──┐
 ## Prerequisites
 
 - **Python 3.11+**
-- ~200 MB disk for the virtual environment and generated parquet data
+- ~200 MB disk for the virtual environment and generated database
 
 ---
 
@@ -82,9 +84,9 @@ python run.py
 
 This runs the whole thing end-to-end and is safe to put in CI:
 
-1. **generate** synthetic data → `data/*.parquet`
+1. **generate** synthetic data → `data/pm_pnl.db` (SQLite)
 2. **compute** all engine outputs
-3. **reconcile** — prints the R1–R5 tie-out table; **exits non-zero if any break**
+3. **reconcile** — prints the R1–R7 tie-out table; **exits non-zero if any break**
 4. **test** — runs `pytest tests/`
 
 On success it prints the command to launch the dashboard.
@@ -98,7 +100,7 @@ streamlit run app/Home.py
 ```
 
 Streamlit opens a browser at `http://localhost:8501`. Use the left sidebar to move
-between the four pages.
+between the five pages.
 
 > If you launch the app *without* running the pipeline first, generate the data
 > once with `python -m src.data_gen.generate`.
@@ -110,8 +112,9 @@ between the four pages.
 ### 🏦 Home — Fund Overview
 The CEO/LP landing page. KPI cards (AUM, Gross, Net, **PM Comp Expense**, Investor
 Net), the fund equity curve (Gross vs Net — the gap *is* the cost bridge, drag to
-zoom), a Pod & PM leaderboard (toggle **Strategy Pod / Team**) with 3-month trend
-sparklines and a comp/net bar, and the **Controls & Reconciliation** panel.
+zoom), the **fund AUM over time** chart (monthly reallocation + investor flows), a
+Pod & PM leaderboard (toggle **Strategy Pod / Team**) with 3-month trend sparklines
+and a comp/net bar, and the **Controls & Reconciliation** panel.
 **All-green = trustworthy.** Switch **light / dark** from the app's ☰ → Settings menu.
 
 ### 🔍 Pod & PM — Drill-down
@@ -135,6 +138,12 @@ realized effective rate**, the **accrued comp liability over time** (with its sh
 of net PnL), the **netting-risk** callout, and the **decision tool**: a payout-ratio
 slider that **recomputes comp and investor net live**, plus a sensitivity curve with
 the **current ratio marked**.
+
+### 🗄️ SQL Data Explorer
+A live SQL query console against `data/pm_pnl.db`. Browse any raw table, run ad-hoc
+queries, and verify that the numbers you see on other pages come directly from the
+source data — closing the audit loop. Supports the full SQLite dialect; results render
+as a paginated dataframe.
 
 ---
 
@@ -179,8 +188,14 @@ liability over time, and the `payout_ratio` sensitivity tool.
 
 ![PM Comp as Cost](docs/images/04_PM_Comp_as_Cost.png)
 
+### 🗄️ SQL Data Explorer
+Live query console against `data/pm_pnl.db` — browse raw tables, run ad-hoc SQL,
+close the audit loop between dashboard numbers and source data.
+
+![SQL Data Explorer](docs/images/05_SQL_Data_Explorer.png)
+
 > To regenerate these after a UI change: run the app, then re-capture each page into
-> `docs/images/`.
+> `docs/images/` (filenames `01_Home.png` through `05_SQL_Data_Explorer.png`).
 
 ---
 
@@ -190,10 +205,10 @@ liability over time, and the `payout_ratio` sensitivity tool.
 pytest tests/ -q
 ```
 
-21 tests validate the engine against hand-computed values: MTM roll-up, the
-Gross→Net bridge, HWM crystallization (including an underwater PM earning **0**
-comp), the tiered comp ladder, prior-year loss carryforward, netting cost, and
-every reconciliation tie-out (R1–R6).
+59 tests validate the engine against hand-computed values: MTM roll-up, the
+Gross→Net→Eligible bridge, HWM crystallization (including an underwater PM earning
+**0** comp), the tiered comp ladder, prior-year loss carryforward, netting cost,
+non-trading income, dynamic AUM history, and every reconciliation tie-out (R1–R7).
 
 ---
 
@@ -236,15 +251,17 @@ pm_pnl_dashboard/
 ├─ config/assumptions.yaml    # all economic assumptions (config-driven)
 ├─ run.py                     # one-command pipeline
 ├─ requirements.txt
-├─ .streamlit/config.toml     # dark financial theme
+├─ .streamlit/config.toml     # dark/light financial theme
+├─ data/pm_pnl.db             # generated SQLite database (run `python run.py`)
 ├─ src/
 │  ├─ config.py               # YAML loader + blended payout
-│  ├─ data_gen/generate.py    # synthetic data (factor model + skill)
+│  ├─ db.py                   # SQLite read/write helpers
+│  ├─ data_gen/generate.py    # synthetic data (factor model + skill + AUM history)
 │  ├─ engine/                 # pnl, costs, payoff, attribution, economics, recon
 │  └─ loader.py               # cached loaders + compute_all()
 ├─ app/
 │  ├─ Home.py                 # Fund Overview
-│  ├─ pages/                  # 1 Pod & PM · 2 Attribution · 3 PM Comp as Cost
-│  └─ components/             # theme (CSS), kpi cards, controls panel
-└─ tests/                     # pytest engine correctness
+│  ├─ pages/                  # 1 Pod & PM · 2 Attribution · 3 PM Comp as Cost · 4 SQL Explorer
+│  └─ components/             # theme, kpi cards, controls panel, charts
+└─ tests/                     # 59 pytest cases vs hand-computed values
 ```
