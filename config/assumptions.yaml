@@ -128,21 +128,21 @@ teams:
 # -----------------------------------------------------------------------------
 pms:
   # Equity L/S
-  - {pm_id: PM_ECM_1, pod_id: POD_ECM, team_id: TEAM_ALPHA, name: "AAA", allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0, prior_year_pnl:         0, base_salary: 750000}
-  - {pm_id: PM_ECM_2, pod_id: POD_ECM, team_id: TEAM_BETA,  name: "BBB", allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9, prior_year_pnl:         0, base_salary: 500000}
-  - {pm_id: PM_ECM_3, pod_id: POD_ECM, team_id: TEAM_GAMMA, name: "CCC", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4, prior_year_pnl: -1000000, base_salary: 350000}
+  - {pm_id: PM_ECM_1, pod_id: POD_ECM, team_id: TEAM_ALPHA, name: "PM_A", allocated_capital: 200000000, payout_ratio: 0.18, hurdle_rate: 0.01, initial_HWM: 0, skill:  2.0, prior_year_pnl:         0, base_salary: 750000}
+  - {pm_id: PM_ECM_2, pod_id: POD_ECM, team_id: TEAM_BETA,  name: "PM_B", allocated_capital: 160000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.9, prior_year_pnl:         0, base_salary: 500000}
+  - {pm_id: PM_ECM_3, pod_id: POD_ECM, team_id: TEAM_GAMMA, name: "PM_C", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.4, prior_year_pnl: -1000000, base_salary: 350000}
   # Quant
-  - {pm_id: PM_QNT_1, pod_id: POD_QNT, team_id: TEAM_ALPHA, name: "DDD", allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8, prior_year_pnl:         0, base_salary: 700000}
-  - {pm_id: PM_QNT_2, pod_id: POD_QNT, team_id: TEAM_GAMMA, name: "EEE", allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1, prior_year_pnl:  -800000, base_salary: 400000}
+  - {pm_id: PM_QNT_1, pod_id: POD_QNT, team_id: TEAM_ALPHA, name: "PM_D", allocated_capital: 200000000, payout_ratio: 0.15, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.8, prior_year_pnl:         0, base_salary: 700000}
+  - {pm_id: PM_QNT_2, pod_id: POD_QNT, team_id: TEAM_GAMMA, name: "PM_E", allocated_capital: 180000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.1, prior_year_pnl:  -800000, base_salary: 400000}
   # Macro
-  - {pm_id: PM_MAC_1, pod_id: POD_MAC, team_id: TEAM_BETA,  name: "FFF", allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2, prior_year_pnl:         0, base_salary: 600000}
-  - {pm_id: PM_MAC_2, pod_id: POD_MAC, team_id: TEAM_GAMMA, name: "GGG", allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6, prior_year_pnl: -1000000, base_salary: 350000}
+  - {pm_id: PM_MAC_1, pod_id: POD_MAC, team_id: TEAM_BETA,  name: "PM_F", allocated_capital: 160000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.2, prior_year_pnl:         0, base_salary: 600000}
+  - {pm_id: PM_MAC_2, pod_id: POD_MAC, team_id: TEAM_GAMMA, name: "PM_G", allocated_capital: 140000000, payout_ratio: 0.19, hurdle_rate: 0.02, initial_HWM: 0, skill: -0.6, prior_year_pnl: -1000000, base_salary: 350000}
   # Credit
-  - {pm_id: PM_CRD_1, pod_id: POD_CRD, team_id: TEAM_ALPHA, name: "HHH", allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5, prior_year_pnl:         0, base_salary: 650000}
-  - {pm_id: PM_CRD_2, pod_id: POD_CRD, team_id: TEAM_DELTA, name: "III", allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6, prior_year_pnl: -1500000, base_salary: 450000}
+  - {pm_id: PM_CRD_1, pod_id: POD_CRD, team_id: TEAM_ALPHA, name: "PM_H", allocated_capital: 140000000, payout_ratio: 0.16, hurdle_rate: 0.01, initial_HWM: 0, skill:  1.5, prior_year_pnl:         0, base_salary: 650000}
+  - {pm_id: PM_CRD_2, pod_id: POD_CRD, team_id: TEAM_DELTA, name: "PM_I", allocated_capital: 110000000, payout_ratio: 0.17, hurdle_rate: 0.01, initial_HWM: 0, skill:  0.6, prior_year_pnl: -1500000, base_salary: 450000}
   # Event
-  - {pm_id: PM_EVT_1, pod_id: POD_EVT, team_id: TEAM_BETA,  name: "JJJ", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6, prior_year_pnl:         0, base_salary: 800000}
-  - {pm_id: PM_EVT_2, pod_id: POD_EVT, team_id: TEAM_DELTA, name: "KKK", allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3, prior_year_pnl:         0, base_salary: 400000}
+  - {pm_id: PM_EVT_1, pod_id: POD_EVT, team_id: TEAM_BETA,  name: "PM_J", allocated_capital: 120000000, payout_ratio: 0.20, hurdle_rate: 0.02, initial_HWM: 0, skill:  1.6, prior_year_pnl:         0, base_salary: 800000}
+  - {pm_id: PM_EVT_2, pod_id: POD_EVT, team_id: TEAM_DELTA, name: "PM_K", allocated_capital: 100000000, payout_ratio: 0.18, hurdle_rate: 0.02, initial_HWM: 0, skill:  0.3, prior_year_pnl:         0, base_salary: 400000}
 
 # -----------------------------------------------------------------------------
 # Dynamic AUM reallocation. Each month an investment committee adjusts PM

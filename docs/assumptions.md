@@ -153,17 +153,17 @@ Each month an investment committee reviews PM performance and adjusts capital. F
 
 | PM | Pod | AUM | Payout | Hurdle | Skill | Prior-Year Loss | Base Salary | Design Intent |
 |---|---|---|---|---|---|---|---|---|
-| AAA | Equity L/S | $200M | 18% | 1% | 2.0 | $0 | $750k | Strong performer; demonstrates tiered comp ladder triggering |
-| BBB | Equity L/S | $160M | 16% | 1% | 0.9 | $0 | $500k | Marginal performer; may or may not cover costs in a given year |
-| CCC | Equity L/S | $120M | 20% | 2% | –0.4 | –$1M | $350k | Underwater PM; shows loss carryforward + zero comp accrual |
-| DDD | Quant | $200M | 15% | 1% | 1.8 | $0 | $700k | Strong quant; lower payout reflecting systematic strategy margins |
-| EEE | Quant | $180M | 17% | 1% | 0.1 | –$800k | $400k | Near-zero skill + prior loss; demonstrates extended recovery period |
-| FFF | Macro | $160M | 18% | 2% | 1.2 | $0 | $600k | Solid macro PM; higher hurdle reflects discretionary strategy premium |
-| GGG | Macro | $140M | 19% | 2% | –0.6 | –$1M | $350k | Struggling macro; shows full loss carryforward mechanics |
-| HHH | Credit | $140M | 16% | 1% | 1.5 | $0 | $650k | Consistent credit PM; demonstrates credit asset-class attribution |
-| III | Credit | $110M | 17% | 1% | 0.6 | –$1.5M | $450k | Moderate skill + largest prior loss; slowest comp recovery |
-| JJJ | Event | $120M | 20% | 2% | 1.6 | $0 | $800k | Top event-driven PM; highest payout + highest base salary |
-| KKK | Event | $100M | 18% | 2% | 0.3 | $0 | $400k | Borderline event PM; illustrates marginal profitability |
+| PM_A | Equity L/S | $200M | 18% | 1% | 2.0 | $0 | $750k | Strong performer; demonstrates tiered comp ladder triggering |
+| PM_B | Equity L/S | $160M | 16% | 1% | 0.9 | $0 | $500k | Marginal performer; may or may not cover costs in a given year |
+| PM_C | Equity L/S | $120M | 20% | 2% | –0.4 | –$1M | $350k | Underwater PM; shows loss carryforward + zero comp accrual |
+| PM_D | Quant | $200M | 15% | 1% | 1.8 | $0 | $700k | Strong quant; lower payout reflecting systematic strategy margins |
+| PM_E | Quant | $180M | 17% | 1% | 0.1 | –$800k | $400k | Near-zero skill + prior loss; demonstrates extended recovery period |
+| PM_F | Macro | $160M | 18% | 2% | 1.2 | $0 | $600k | Solid macro PM; higher hurdle reflects discretionary strategy premium |
+| PM_G | Macro | $140M | 19% | 2% | –0.6 | –$1M | $350k | Struggling macro; shows full loss carryforward mechanics |
+| PM_H | Credit | $140M | 16% | 1% | 1.5 | $0 | $650k | Consistent credit PM; demonstrates credit asset-class attribution |
+| PM_I | Credit | $110M | 17% | 1% | 0.6 | –$1.5M | $450k | Moderate skill + largest prior loss; slowest comp recovery |
+| PM_J | Event | $120M | 20% | 2% | 1.6 | $0 | $800k | Top event-driven PM; highest payout + highest base salary |
+| PM_K | Event | $100M | 18% | 2% | 0.3 | $0 | $400k | Borderline event PM; illustrates marginal profitability |
 
 **Rationale for payout ratio range (15–20%):** Industry range for PM-level incentive comp at a multi-PM platform is typically 15–25% of eligible PnL, with higher rates for discretionary PMs in niche strategies (event, macro) and lower rates for systematic strategies where the infrastructure investment is significant. The 20% ceiling here avoids the 20% "carry-style" headline number while still producing visible comp expense.
 
